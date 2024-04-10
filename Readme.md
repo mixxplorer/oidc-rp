@@ -20,3 +20,7 @@ This module aims to support typical use-cases around implementing a relying part
 We are aware that this is just another OAuth/OIDC lib in the rust ecosystem. The issue is that most libraries do support only parts of the feature set we need, so in our project, we had to use multiple libraries together. During review of other libraries, we did not found a single one, which supports all the features we need. As we alone have multiple project re-implementing it, we decided to just roll the dice and build this library. We are open-sourcing it in the hope it will be useful for someone else having similar requirements.
 
 We do not aim to re-write the verification part of the tokens, but more to use other libraries (which we think have good enough code quality) to provide a unified, simple interfaces or a relying party in Rust.
+
+## License
+
+MIT or Apache License version 2.0 at your will.
