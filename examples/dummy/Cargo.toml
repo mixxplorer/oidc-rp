@@ -1,0 +1,12 @@
+[package]
+name = "dummy"
+version = "0.0.1"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+oidc-rp = { path="../../" }
+anyhow = "~1.0.82"
+log = "~0.4.21"
+simple_logger = { version = "~4.3.3", features = ["colors", "timestamps", "stderr"] }

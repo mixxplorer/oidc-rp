@@ -1,0 +1,20 @@
+workspace = { members = ["examples/dummy"] }
+[package]
+name = "oidc-rp"
+description = "Implements OIDC Relying Party methods"
+version = "0.0.1"
+edition = "2021"
+authors = ["Leonard Marschke <leo@mixxplorer.de>"]
+readme = "Readme.md"
+repository = "https://rechenknecht.net/mixxplorer/libraries/oidc-rp"
+license = "MIT OR Apache-2.0"
+keywords = ["oidc", "oauth", "authentication"]
+categories = ["authentication"]
+
+[badges]
+maintenance = { status = "experimental" }
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+log = "~0.4.5"
