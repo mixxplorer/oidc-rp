@@ -18,3 +18,8 @@ maintenance = { status = "experimental" }
 
 [dependencies]
 log = "~0.4.5"
+jsonwebtoken = "~9.3.0"
+serde = { version = "1.0.197", features = ["std", "derive"] }
+url = { version = "2.5.0", features = ["serde"] }
+thiserror = "1.0.58"
+reqwest = { version = "0.12.3", features = ["http2", "rustls-tls-native-roots", "blocking", "brotli", "json"] }

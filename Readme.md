@@ -1,13 +1,15 @@
 # OpenID Connect Relying Party library for Rust
 
-This module aims to support typical use-cases around implementing a relying party using sane defaults:
+This module aims to support typical use-cases around implementing a relying party utilizing Bearer tokens using sane defaults. Session based approaches are explicitly not supported (and thus front-channel or back-channel logout).
 
-* Verifier:
+Supported components are:
+
+* Verifier (e.g. Web API utilizing Auth Bearer tokens):
   * OIDC Discovery ([RFC 8414](https://datatracker.ietf.org/doc/html/rfc8414))
   * Access token / ID token verification (locally, without IdP interaction via [JWKS](https://datatracker.ietf.org/doc/html/rfc7517)) ([RFC 9068](https://datatracker.ietf.org/doc/html/rfc9068), with quirks to support [Keycloak](https://github.com/keycloak/keycloak/discussions/8646))
   * Token parsing
   * Automatic, periodic JWKS refresh for reliable, fast token verification
-* Client:
+* Client (e.g. your Single-Page-App, CLI tool etc.):
   * Automatic refresh of access tokens
   * Retrieval of access tokens (with specific lifetime)
   * Start session by supplying refresh token
