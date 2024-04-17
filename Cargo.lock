@@ -234,9 +234,9 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
 name = "chrono"
-version = "0.4.37"
+version = "0.4.38"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a0d04d43504c61aa6c7531f1871dd0d418d91130162063b789da00fd7057a5e"
+checksum = "a21f936df1771bf62b77f047b726c4625ff2e8aa607c01ec06e5a05bd8463401"
 dependencies = [
  "android-tzdata",
  "iana-time-zone",
@@ -1155,11 +1155,11 @@ dependencies = [
 
 [[package]]
 name = "oauth2"
-version = "5.0.0-alpha.3"
+version = "5.0.0-alpha.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "622320af955f1df37b4268c186acbb2889f646e16ba363b0634aeaaa04cfb219"
+checksum = "098af5a5110b4deacf3200682963713b143ae9d28762b739bdb7b98429dfaf68"
 dependencies = [
- "base64 0.21.7",
+ "base64 0.22.0",
  "chrono",
  "getrandom",
  "http",
@@ -1186,10 +1186,12 @@ dependencies = [
 name = "oidc-rp"
 version = "0.0.1"
 dependencies = [
+ "chrono",
  "log",
  "openidconnect",
  "reqwest",
  "serde",
+ "serde_json",
  "thiserror",
  "url",
 ]
@@ -1202,8 +1204,7 @@ checksum = "3fdb12b2476b595f9358c5161aa467c2438859caa136dec86c26fdd2efe17b92"
 
 [[package]]
 name = "openidconnect"
-version = "4.0.0-alpha.1"
-source = "git+https://github.com/ramosbugs/openidconnect-rs.git?branch=main#1d97e0e1fcbab6dbcea60abb5f33c895c8499848"
+version = "4.0.0-alpha.2"
 dependencies = [
  "base64 0.21.7",
  "chrono",

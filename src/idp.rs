@@ -66,7 +66,7 @@ where
     APM: openidconnect::AdditionalProviderMetadata,
 {
     attributes: std::sync::Arc<std::sync::RwLock<IdPAttributes<APM>>>,
-    reqwest_client: std::sync::Arc<reqwest::blocking::Client>,
+    pub reqwest_client: std::sync::Arc<reqwest::blocking::Client>,
     jwks_update_thread_stop: Option<std::sync::Arc<std::sync::RwLock<bool>>>,
 }
 
@@ -193,11 +193,11 @@ where
                         match next_refresh.duration_since(std::time::SystemTime::now()) {
                             Ok(duration) => {
                                 std::thread::sleep(duration);
-                            },
+                            }
                             Err(error) => {
                                 // duration is negative, just continue
                                 log::warn!("Received negative duration from refresh strategy, you might want select a refresh strategy, which is returning timestamps with at least a few seconds in the future to prevent DoSing: {:?}", error);
-                            },
+                            }
                         }
                     } else {
                         log::info!("Exiting JWKS refresh thread as refresh policy does not request any refresh in future.");
@@ -242,9 +242,14 @@ where
         Ok(())
     }
 
-    // Sets the JWKS refresh strategy to the default one and start refreshing JWKS
+    /// Sets the JWKS refresh strategy to the default one and start refreshing JWKS
     pub fn set_default_jwks_refresh_strategy(&mut self) -> Result<(), IdPError> {
         self.set_jwks_refresh_strategy::<DefaultJwksRefreshStrategy>()
+    }
+
+    /// Returns true if there is some JWKS refresh strategy running
+    pub fn has_jwks_refresh_strategy(&self) -> bool {
+        self.jwks_update_thread_stop.is_some()
     }
 
     /// Returns the JWKS of the IdP.
@@ -252,7 +257,10 @@ where
     /// Returns up-to-date JWKS according to the refresh policy in use.
     /// This function should typically return immediately, but it might block if the last JWKS update is considered too old and/or if there is no cached JWKS available.
     pub fn jwks(&self) -> Result<openidconnect::JsonWebKeySet<IdPJsonWebKey>, IdPError> {
-        let attributes = self.attributes.read().map_err(|_| IdPError::AttributeLockError())?;
+        let attributes = self
+            .attributes
+            .read()
+            .map_err(|_| IdPError::AttributeLockError())?;
 
         // Check whether the JWKs got updated recently enough
         if let Some(jwks_usable_until) = attributes.jwks_usable_until {
@@ -262,6 +270,14 @@ where
         }
 
         Ok(attributes.discovery.jwks().clone())
+    }
+
+    pub fn issuer(&self) -> Result<openidconnect::IssuerUrl, IdPError> {
+        let attributes = self
+            .attributes
+            .read()
+            .map_err(|_| IdPError::AttributeLockError())?;
+        Ok(attributes.discovery.issuer().clone())
     }
 }
 
@@ -299,7 +315,9 @@ pub trait JwksRefreshStrategy: std::fmt::Debug + Clone + Send + Sync {
     /// last_refresh is the time the current JWKS got fetched.
     /// TODO add cache header from request
     /// TODO add jwks itself
-    fn usable_until(last_refresh: &std::time::SystemTime) -> Result<Option<std::time::SystemTime>, IdPError>;
+    fn usable_until(
+        last_refresh: &std::time::SystemTime,
+    ) -> Result<Option<std::time::SystemTime>, IdPError>;
 }
 
 /// A refresh strategy, which refreshes the JWKS every five minutes from the IdP (regardless of any HTTP caching).
@@ -320,23 +338,23 @@ impl JwksRefreshStrategy for DefaultJwksRefreshStrategy {
     fn next_refresh(
         last_refresh: &std::time::SystemTime,
     ) -> Result<Option<std::time::SystemTime>, IdPError> {
-
         let next_planned_refresh = *last_refresh + Self::REFRESH_EVERY;
         let next_min_refresh = std::time::SystemTime::now() + Self::MIN_REFRESH_DISTANCE;
 
         if next_planned_refresh > next_min_refresh {
             log::trace!("Providing planned refresh timestamp");
-            return Ok(Some(next_planned_refresh))
+            return Ok(Some(next_planned_refresh));
         }
         log::trace!("Providing min refresh timestamp (possible after a failed request)");
         Ok(Some(next_min_refresh))
     }
 
-    fn usable_until(last_refresh: &std::time::SystemTime) -> Result<Option<std::time::SystemTime>, IdPError> {
+    fn usable_until(
+        last_refresh: &std::time::SystemTime,
+    ) -> Result<Option<std::time::SystemTime>, IdPError> {
         Ok(Some(*last_refresh + Self::INVALIDATE_AFTER))
     }
 }
-
 
 /// A refresh strategy, which just never refreshes anything.
 ///
@@ -351,7 +369,9 @@ impl JwksRefreshStrategy for NoJwksRefreshStrategy {
         Ok(None)
     }
 
-    fn usable_until(_last_refresh: &std::time::SystemTime) -> Result<Option<std::time::SystemTime>, IdPError> {
+    fn usable_until(
+        _last_refresh: &std::time::SystemTime,
+    ) -> Result<Option<std::time::SystemTime>, IdPError> {
         Ok(None)
     }
 }
