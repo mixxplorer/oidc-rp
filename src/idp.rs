@@ -21,7 +21,7 @@ pub enum IdPError {
     AttributeLockError(),
 
     #[error("JWKs too old. Refresh might have failed.")]
-    JWKSTooOld(),
+    DataTooOld(),
 }
 
 pub type IdPJsonWebKey = openidconnect::core::CoreJsonWebKey;
@@ -43,7 +43,7 @@ type IdPAttributesDiscovery<APM> = openidconnect::ProviderMetadata<
 >;
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct IdPAttributes<APM>
+pub struct IdPAttributes<APM = EmptyAdditionalIdPMetadata>
 where
     APM: openidconnect::AdditionalProviderMetadata,
 {
@@ -51,8 +51,8 @@ where
     #[serde(bound(deserialize = "APM: openidconnect::AdditionalProviderMetadata"))]
     discovery: IdPAttributesDiscovery<APM>,
     jwk_set: openidconnect::JsonWebKeySet<openidconnect::core::CoreJsonWebKey>,
-    last_discovery_refresh: std::time::SystemTime,
-    jwks_usable_until: Option<std::time::SystemTime>,
+    last_data_refresh: std::time::SystemTime,
+    data_usable_until: Option<std::time::SystemTime>,
 }
 
 /// Identity Provider Object to provide information about the Identity Provider.
@@ -61,18 +61,25 @@ where
 ///
 /// To create a new Provider, please use [`IdP::new`]
 #[derive(Clone, Debug)]
-pub struct IdP<APM = EmptyAdditionalIdPMetadata>
-where
+pub struct IdP<
+    APM = EmptyAdditionalIdPMetadata,
+    IsRefreshStrategySet = crate::types::AttributeNotSet,
+> where
     APM: openidconnect::AdditionalProviderMetadata,
+    IsRefreshStrategySet: crate::types::AttributeState,
 {
     attributes: std::sync::Arc<std::sync::RwLock<IdPAttributes<APM>>>,
     pub reqwest_client: std::sync::Arc<reqwest::blocking::Client>,
-    jwks_update_thread_stop: Option<std::sync::Arc<std::sync::RwLock<bool>>>,
+    idp_updater: Option<crate::updater::Updater<IdPError>>,
+
+    // see https://doc.rust-lang.org/std/marker/struct.PhantomData.html
+    phantom: std::marker::PhantomData<IsRefreshStrategySet>,
 }
 
-impl<APM> IdP<APM>
+impl<APM, IsRefreshStrategySet> IdP<APM, IsRefreshStrategySet>
 where
     APM: openidconnect::AdditionalProviderMetadata + Sync + Send + 'static,
+    IsRefreshStrategySet: crate::types::AttributeState,
 {
     /// Creates a new identity provider object.
     ///
@@ -90,8 +97,7 @@ where
     /// ```
     /// let mut idp = oidc_rp::idp::IdP::<oidc_rp::idp::EmptyAdditionalIdPMetadata>::new(
     ///     url::Url::parse("https://keycloak.example.org/realms/test")?,
-    /// )?;
-    /// idp.set_default_jwks_refresh_strategy()?;
+    /// )?.set_default_jwks_refresh_strategy()?;
     ///
     /// // now you can access the jwks (across threads) for verifying access tokens
     /// idp.jwks()
@@ -109,19 +115,20 @@ where
             .map_err(|_| IdPError::FetchError)?;
         let reqwest_client_arc = std::sync::Arc::new(reqwest_client);
         let discovery_attributes =
-            Self::fetch_discovery_attributes(&*reqwest_client_arc, base_url.clone())?;
+            Self::fetch_discovery_attributes(&reqwest_client_arc, base_url.clone())?;
 
         Ok(Self {
             attributes: std::sync::RwLock::new(IdPAttributes::<APM> {
                 base_url,
                 discovery: discovery_attributes,
                 jwk_set: openidconnect::JsonWebKeySet::new(vec![]),
-                last_discovery_refresh: std::time::SystemTime::now(),
-                jwks_usable_until: None,
+                last_data_refresh: std::time::SystemTime::now(),
+                data_usable_until: None,
             })
             .into(),
             reqwest_client: reqwest_client_arc,
-            jwks_update_thread_stop: None,
+            idp_updater: None,
+            phantom: std::marker::PhantomData,
         })
     }
 
@@ -153,188 +160,163 @@ where
         Ok(attrs.base_url.clone())
     }
 
-    /// Returns discovery attributes as fetched on object creation
+    /// Returns true if there is some JWKS refresh strategy running
+    pub fn has_jwks_refresh_strategy(&self) -> bool {
+        self.idp_updater.is_some()
+    }
+}
+
+/// Functions only available if a refresh strategy is in place
+impl<APM> IdP<APM, crate::types::AttributeSet>
+where
+    APM: openidconnect::AdditionalProviderMetadata + Sync + Send + 'static,
+{
+    /// Returns up-to-date discovery attributes according to IdP data refresh strategy.
+    ///
+    /// Returns up-to-date IdP data according to the refresh policy in use.
+    /// Errors if data is too old.
     pub fn discovery_attributes(&self) -> Result<IdPAttributesDiscovery<APM>, IdPError> {
-        let attrs = self
+        let attributes = self
             .attributes
             .read()
             .map_err(|_| IdPError::AttributeLockError())?;
-        Ok(attrs.discovery.clone())
-    }
 
-    /// Sets the JWKS refresh strategy and enables refreshing JWKS
-    pub fn set_jwks_refresh_strategy<JRS>(&mut self) -> Result<(), IdPError>
-    where
-        JRS: JwksRefreshStrategy,
-    {
-        // send stop signal to true for any prior refresh strategy to terminate
-        if let Some(jwks_update_thread_stop) = &self.jwks_update_thread_stop {
-            let mut stop = jwks_update_thread_stop.write().unwrap();
-            *stop = true;
-        }
-        // create a new Arc and RwLock to not stop our new thread
-        self.jwks_update_thread_stop = Some(std::sync::Arc::new(std::sync::RwLock::new(false)));
-
-        let update_thread_reqwest = self.reqwest_client.clone();
-        let update_thread_attributes = self.attributes.clone();
-        let update_thread_base_url = self.base_url()?;
-        let update_thread_stop = self.jwks_update_thread_stop.as_ref().unwrap().clone();
-        std::thread::spawn(move || {
-            loop {
-                let update_result = (|| -> Result<bool, IdPError> {
-                    let next_refresh_opt = JRS::next_refresh(&{
-                        update_thread_attributes
-                            .read()
-                            .map_err(|_| IdPError::AttributeLockError())?
-                            .last_discovery_refresh
-                            .clone()
-                    })?;
-                    if let Some(next_refresh) = next_refresh_opt {
-                        match next_refresh.duration_since(std::time::SystemTime::now()) {
-                            Ok(duration) => {
-                                std::thread::sleep(duration);
-                            }
-                            Err(error) => {
-                                // duration is negative, just continue
-                                log::warn!("Received negative duration from refresh strategy, you might want select a refresh strategy, which is returning timestamps with at least a few seconds in the future to prevent DoSing: {:?}", error);
-                            }
-                        }
-                    } else {
-                        log::info!("Exiting JWKS refresh thread as refresh policy does not request any refresh in future.");
-                        // stop thread
-                        return Ok(true);
-                    }
-
-                    if *update_thread_stop.read().unwrap() {
-                        log::info!("Exiting JWKS refresh thread as base object says so.");
-                        // stop thread
-                        return Ok(true);
-                    }
-
-                    let timestamp_attribute_refresh = std::time::SystemTime::now();
-                    let new_attrs = Self::fetch_discovery_attributes(
-                        &*update_thread_reqwest,
-                        update_thread_base_url.clone(),
-                    )?;
-                    let jwks_usable_until = JRS::usable_until(&timestamp_attribute_refresh)?;
-                    {
-                        let mut writable_attributes = update_thread_attributes
-                            .write()
-                            .map_err(|_| IdPError::AttributeLockError())?;
-                        writable_attributes.discovery = new_attrs;
-                        writable_attributes.jwks_usable_until = jwks_usable_until;
-                        writable_attributes.last_discovery_refresh = timestamp_attribute_refresh;
-                    }
-                    Ok(false)
-                })();
-                match update_result {
-                    Ok(res) => {
-                        if res {
-                            // handle stop thread request
-                            break;
-                        }
-                        log::debug!("Updated JWKS!")
-                    }
-                    Err(error) => log::error!("Updating JWKS failed with {:?}", error),
-                }
+        // Check whether the IDP data got updated recently enough
+        if let Some(jwks_usable_until) = attributes.data_usable_until {
+            if jwks_usable_until < std::time::SystemTime::now() {
+                return Err(IdPError::DataTooOld());
             }
-        });
-        Ok(())
-    }
+        }
 
-    /// Sets the JWKS refresh strategy to the default one and start refreshing JWKS
-    pub fn set_default_jwks_refresh_strategy(&mut self) -> Result<(), IdPError> {
-        self.set_jwks_refresh_strategy::<DefaultJwksRefreshStrategy>()
-    }
-
-    /// Returns true if there is some JWKS refresh strategy running
-    pub fn has_jwks_refresh_strategy(&self) -> bool {
-        self.jwks_update_thread_stop.is_some()
+        Ok(attributes.discovery.clone())
     }
 
     /// Returns the JWKS of the IdP.
     ///
-    /// Returns up-to-date JWKS according to the refresh policy in use.
-    /// This function should typically return immediately, but it might block if the last JWKS update is considered too old and/or if there is no cached JWKS available.
+    /// Returns up-to-date JWKS according to the refresh policy in use. Errors if data is too old.
     pub fn jwks(&self) -> Result<openidconnect::JsonWebKeySet<IdPJsonWebKey>, IdPError> {
-        let attributes = self
-            .attributes
-            .read()
-            .map_err(|_| IdPError::AttributeLockError())?;
-
-        // Check whether the JWKs got updated recently enough
-        if let Some(jwks_usable_until) = attributes.jwks_usable_until {
-            if jwks_usable_until < std::time::SystemTime::now() {
-                return Err(IdPError::JWKSTooOld());
-            }
-        }
-
-        Ok(attributes.discovery.jwks().clone())
-    }
-
-    pub fn issuer(&self) -> Result<openidconnect::IssuerUrl, IdPError> {
-        let attributes = self
-            .attributes
-            .read()
-            .map_err(|_| IdPError::AttributeLockError())?;
-        Ok(attributes.discovery.issuer().clone())
+        Ok(self.discovery_attributes()?.jwks().clone())
     }
 }
 
-impl<APM> Drop for IdP<APM>
+/// Functions only available if a refresh strategy is not in place
+impl<APM> IdP<APM, crate::types::AttributeNotSet>
 where
-    APM: openidconnect::AdditionalProviderMetadata,
+    APM: openidconnect::AdditionalProviderMetadata + Sync + Send + 'static,
 {
-    /// Ensure the update thread is getting ended when dropping reference to main object.
-    /// The main object is the only mean to access data produced by the update thread.
-    fn drop(&mut self) {
-        if let Some(jwks_update_thread_stop) = &self.jwks_update_thread_stop {
-            let mut stop = jwks_update_thread_stop.write().unwrap();
-            *stop = true;
-        }
-        log::trace!("Ending update thread...");
+    /// Returns possibly outdated discovery attributes.
+    ///
+    /// Returns discovery attributes which were fetched during object creation.
+    pub fn discovery_attributes_outdated(&self) -> Result<IdPAttributesDiscovery<APM>, IdPError> {
+        let attributes = self
+            .attributes
+            .read()
+            .map_err(|_| IdPError::AttributeLockError())?;
+
+        Ok(attributes.discovery.clone())
+    }
+
+    /// Returns posisbly outdated JWKS of the IdP.
+    ///
+    /// Returns JWKS which were fetched during object creation.
+    pub fn jwks_outdated(&self) -> Result<openidconnect::JsonWebKeySet<IdPJsonWebKey>, IdPError> {
+        Ok(self.discovery_attributes_outdated()?.jwks().clone())
+    }
+
+    /// Sets the JWKS refresh strategy and enables refreshing JWKS
+    pub fn set_idp_refresh_strategy<JRS>(
+        self,
+    ) -> Result<IdP<APM, crate::types::AttributeSet>, IdPError>
+    where
+        JRS: IdPRefreshStrategy,
+    {
+        let next_refresh_attributes = self.attributes.clone();
+        let next_refresh_fn = move || {
+            JRS::next_refresh(&{
+                next_refresh_attributes
+                    .read()
+                    .map_err(|_| IdPError::AttributeLockError())?
+                    .last_data_refresh
+            })
+        };
+
+        let update_reqwest = self.reqwest_client.clone();
+        let update_attributes = self.attributes.clone();
+        let update_base_url = self.base_url()?;
+        let update_fn = move || {
+            let timestamp_attribute_refresh = std::time::SystemTime::now();
+            let new_attrs =
+                Self::fetch_discovery_attributes(&update_reqwest, update_base_url.clone())?;
+            let data_usable_until = JRS::usable_until(&timestamp_attribute_refresh)?;
+            {
+                let mut writable_attributes = update_attributes
+                    .write()
+                    .map_err(|_| IdPError::AttributeLockError())?;
+                writable_attributes.discovery = new_attrs;
+                writable_attributes.data_usable_until = Some(data_usable_until);
+                writable_attributes.last_data_refresh = timestamp_attribute_refresh;
+            }
+            Ok::<(), IdPError>(())
+        };
+        Ok(IdP {
+            attributes: self.attributes,
+            reqwest_client: self.reqwest_client,
+            idp_updater: Some(crate::updater::Updater::new(next_refresh_fn, update_fn)),
+            phantom: std::marker::PhantomData,
+        })
+    }
+
+    /// Sets the IdP data refresh strategy to the default one and start refreshing IdP data
+    pub fn set_default_idp_refresh_strategy(
+        self,
+    ) -> Result<IdP<APM, crate::types::AttributeSet>, IdPError> {
+        self.set_idp_refresh_strategy::<DefaultIdPDataRefreshStrategy>()
+    }
+
+    /// Set IdP data refresh strategy to a noop. This might be insecure!
+    ///
+    /// This is insecure if you use the IdP for more than ~2-3 minutes in time.
+    /// If you use it longer, please use the default refresh strategy (or something similar).
+    pub fn set_no_idp_refresh_strategy(self) -> Result<IdP<APM, crate::types::AttributeSet>, IdPError> {
+        self.set_idp_refresh_strategy::<NoIdPDataRefreshStrategy>()
     }
 }
 
-pub trait JwksRefreshStrategy: std::fmt::Debug + Clone + Send + Sync {
-    /// When JWKS should get refreshed next time. Will not refresh at all if None.
+pub trait IdPRefreshStrategy: std::fmt::Debug + Clone + Send + Sync {
+    /// When IdP data should get refreshed next time. Will not refresh at all if None.
     ///
     /// You must make sure to throttle requests, e.g. by providing a timestamp, which is always a few seconds in future.
     ///
-    /// last_refresh is the time the current JWKS got fetched.
-    /// TODO add cache header from request
-    /// TODO add jwks itself
+    /// last_refresh is the time the current IdP data got fetched.
     fn next_refresh(
         last_refresh: &std::time::SystemTime,
     ) -> Result<Option<std::time::SystemTime>, IdPError>;
 
-    /// Sets a upper time limit until the current JWKS are considered valid.
+    /// Sets a upper time limit until the current IDP data are considered valid.
     ///
     /// If None is returned, no upper limit is given.
     ///
-    /// last_refresh is the time the current JWKS got fetched.
-    /// TODO add cache header from request
-    /// TODO add jwks itself
+    /// last_refresh is the time the current IdP data got fetched.
     fn usable_until(
         last_refresh: &std::time::SystemTime,
-    ) -> Result<Option<std::time::SystemTime>, IdPError>;
+    ) -> Result<std::time::SystemTime, IdPError>;
 }
 
-/// A refresh strategy, which refreshes the JWKS every five minutes from the IdP (regardless of any HTTP caching).
+/// A refresh strategy, which refreshes the IdP data every five minutes (regardless of any HTTP caching).
 /// If a refresh is not possible, it marks keys unusable after ten minutes.
 ///
 /// The times are chosen in respect to proposed lifetimes of access tokens (about 2 minutes). Therefore, if an IdP
 /// goes down, the current valid access tokens will work until they expire and after expiration we also invalidate
-/// our cached JWKS.
+/// our cached IdP data like JWKS.
 #[derive(Debug, Clone)]
-pub struct DefaultJwksRefreshStrategy {}
-impl DefaultJwksRefreshStrategy {
-    const REFRESH_EVERY: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+pub struct DefaultIdPDataRefreshStrategy {}
+impl DefaultIdPDataRefreshStrategy {
+    const REFRESH_EVERY: std::time::Duration = std::time::Duration::from_secs(5 * 6);
     const MIN_REFRESH_DISTANCE: std::time::Duration = std::time::Duration::from_secs(5);
     const INVALIDATE_AFTER: std::time::Duration = std::time::Duration::from_secs(10 * 60);
 }
 
-impl JwksRefreshStrategy for DefaultJwksRefreshStrategy {
+impl IdPRefreshStrategy for DefaultIdPDataRefreshStrategy {
     fn next_refresh(
         last_refresh: &std::time::SystemTime,
     ) -> Result<Option<std::time::SystemTime>, IdPError> {
@@ -351,18 +333,25 @@ impl JwksRefreshStrategy for DefaultJwksRefreshStrategy {
 
     fn usable_until(
         last_refresh: &std::time::SystemTime,
-    ) -> Result<Option<std::time::SystemTime>, IdPError> {
-        Ok(Some(*last_refresh + Self::INVALIDATE_AFTER))
+    ) -> Result<std::time::SystemTime, IdPError> {
+        Ok(*last_refresh + Self::INVALIDATE_AFTER)
     }
 }
 
 /// A refresh strategy, which just never refreshes anything.
 ///
-/// This is just a demo strategy, not intended to be used in real world scenarios.
-/// Please use the [`DefaultJwksRefreshStrategy`].
+/// This is intended to be used with one time IdP usages and will prevent using IdP metadata
+/// after 10 minutes.
+///
+/// Please use the [`DefaultJwksRefreshStrategy`] for all other cases (or a similar strategy).
 #[derive(Debug, Clone)]
-pub struct NoJwksRefreshStrategy {}
-impl JwksRefreshStrategy for NoJwksRefreshStrategy {
+pub struct NoIdPDataRefreshStrategy {}
+impl NoIdPDataRefreshStrategy {
+    const INVALIDATE_AFTER: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+}
+
+impl IdPRefreshStrategy for NoIdPDataRefreshStrategy {
+
     fn next_refresh(
         _last_refresh: &std::time::SystemTime,
     ) -> Result<Option<std::time::SystemTime>, IdPError> {
@@ -370,8 +359,8 @@ impl JwksRefreshStrategy for NoJwksRefreshStrategy {
     }
 
     fn usable_until(
-        _last_refresh: &std::time::SystemTime,
-    ) -> Result<Option<std::time::SystemTime>, IdPError> {
-        Ok(None)
+        last_refresh: &std::time::SystemTime,
+    ) -> Result<std::time::SystemTime, IdPError> {
+        Ok(*last_refresh + Self::INVALIDATE_AFTER)
     }
 }

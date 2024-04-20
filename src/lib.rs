@@ -1,3 +1,7 @@
+pub mod account;
 pub mod idp;
-pub mod verifier;
 mod types;
+mod updater;
+pub mod verifier;
+
+pub use openidconnect as oidc;
