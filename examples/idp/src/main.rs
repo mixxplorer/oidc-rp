@@ -10,6 +10,9 @@ use clap::Parser;
 pub struct CliArguments {
     #[clap(flatten)]
     log_level: clap_verbosity_flag::Verbosity,
+
+    #[arg(short, long, help = "Base URL of IdP, e.g. https://keycloak.example.org/realms/your-realm")]
+    idp_url: String,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -26,10 +29,10 @@ fn main() -> anyhow::Result<()> {
         .init()?;
 
     {
-        let mut idp = oidc_rp::idp::IdP::<oidc_rp::idp::EmptyAdditionalIdPMetadata>::new(
-            url::Url::parse("https://keycloak.giz.berlin/auth/realms/giz-playground")?,
-        )?;
-        idp.set_default_jwks_refresh_strategy()?;
+        let idp = oidc_rp::idp::IdP::<oidc_rp::idp::EmptyAdditionalIdPMetadata>::new(
+            url::Url::parse(&args.idp_url)?,
+        )?
+        .set_default_idp_refresh_strategy()?;
 
         log::debug!("JWKS: {:?}", idp.jwks());
 

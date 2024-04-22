@@ -1,4 +1,4 @@
-workspace = { members = ["examples/idp"] }
+workspace = { members = ["examples/account", "examples/auth_verify", "examples/idp"] }
 [package]
 name = "oidc-rp"
 description = "Implements OIDC Relying Party methods"
@@ -17,12 +17,12 @@ maintenance = { status = "experimental" }
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-log = "~0.4.5"
-serde = { version = "1.0", features = ["std", "derive"] }
-serde_json = "1.0"
-url = { version = "2.5.0", features = ["serde"] }
-thiserror = "1.0.58"
-reqwest = { version = "0.12.3", features = ["http2", "rustls-tls-native-roots", "blocking", "brotli", "json"] }
+log = "~0.4"
+serde = { version = "1", features = ["std", "derive"] }
+serde_json = "1"
+url = { version = "2.5", features = ["serde"] }
+thiserror = "1.0"
+reqwest = { version = "0.12", features = ["http2", "rustls-tls-native-roots", "blocking", "brotli", "json"] }
 # openidconnect = { git = "https://github.com/ramosbugs/openidconnect-rs.git", branch = "main", default-features = false, features = ["timing-resistant-secret-traits", "reqwest-blocking"] }
-openidconnect = { path = "../openidconnect-rs", default-features = false, features = ["timing-resistant-secret-traits", "reqwest-blocking", "export-verifier"] }
-chrono = "0.4.38"
+openidconnect = { path = "../openidconnect-rs", default-features = false, features = ["timing-resistant-secret-traits", "reqwest-blocking", "jwt-access-token"] }
+chrono = "0.4"

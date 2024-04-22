@@ -3,6 +3,19 @@
 version = 3
 
 [[package]]
+name = "account"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "clap",
+ "clap-verbosity-flag",
+ "log",
+ "oidc-rp",
+ "simple_logger",
+ "url",
+]
+
+[[package]]
 name = "addr2line"
 version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -113,6 +126,19 @@ dependencies = [
  "memchr",
  "pin-project-lite",
  "tokio",
+]
+
+[[package]]
+name = "auth_verify"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "clap",
+ "clap-verbosity-flag",
+ "log",
+ "oidc-rp",
+ "simple_logger",
+ "url",
 ]
 
 [[package]]

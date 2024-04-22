@@ -1,0 +1,63 @@
+use anyhow::Context;
+use clap::Parser;
+
+#[derive(clap::Parser, Debug)]
+#[command(
+    author,
+    version,
+    long_about = "Account example"
+)]
+pub struct CliArguments {
+    #[clap(flatten)]
+    log_level: clap_verbosity_flag::Verbosity,
+
+    #[arg(short, long, help = "Username to use for direct grant authentication")]
+    username: String,
+    #[arg(short, long, help = "Password to use for direct grant authentication")]
+    password: String,
+
+    #[arg(short, long, help = "Base URL of IdP, e.g. https://keycloak.example.org/realms/your-realm")]
+    idp_url: String,
+
+    #[arg(short, long, help = "Client id at your IdP", default_value = "oidc-rp")]
+    client_id: String,
+}
+
+fn main() -> anyhow::Result<()> {
+    let args = CliArguments::parse();
+
+    simple_logger::SimpleLogger::new()
+        .with_level(
+            args.log_level
+                .log_level()
+                .context("No log level given")?
+                .to_level_filter(),
+        )
+        .with_utc_timestamps()
+        .init()?;
+
+    // fetch access token as we would be a cli tool
+
+    let idp = oidc_rp::idp::IdP::<oidc_rp::idp::EmptyAdditionalIdPMetadata>::new(
+        url::Url::parse(&args.idp_url)?,
+    )?
+    .set_default_idp_refresh_strategy()?;
+
+    let username = oidc_rp::oidc::ResourceOwnerUsername::new(args.username);
+    let password = oidc_rp::oidc::ResourceOwnerPassword::new(args.password);
+
+    let account: oidc_rp::account::Account<oidc_rp::oidc::EmptyAdditionalProviderMetadata, _> =
+        oidc_rp::account::Account::new_public(
+            idp,
+            args.client_id,
+        );
+
+    let account = account.exchange_password(&username, &password)?;
+    let account = account.start_auto_refresh();
+
+    loop {
+        log::info!("Access token: {:?}", account.get_access_token());
+
+        std::thread::sleep(std::time::Duration::new(120, 0));
+    }
+}

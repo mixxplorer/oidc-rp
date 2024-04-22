@@ -51,8 +51,8 @@ where
     #[serde(bound(deserialize = "APM: openidconnect::AdditionalProviderMetadata"))]
     discovery: IdPAttributesDiscovery<APM>,
     jwk_set: openidconnect::JsonWebKeySet<openidconnect::core::CoreJsonWebKey>,
-    last_data_refresh: std::time::SystemTime,
-    data_usable_until: Option<std::time::SystemTime>,
+    last_data_refresh: chrono::DateTime<chrono::Utc>,
+    data_usable_until: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 /// Identity Provider Object to provide information about the Identity Provider.
@@ -122,7 +122,7 @@ where
                 base_url,
                 discovery: discovery_attributes,
                 jwk_set: openidconnect::JsonWebKeySet::new(vec![]),
-                last_data_refresh: std::time::SystemTime::now(),
+                last_data_refresh: chrono::offset::Utc::now(),
                 data_usable_until: None,
             })
             .into(),
@@ -183,7 +183,7 @@ where
 
         // Check whether the IDP data got updated recently enough
         if let Some(jwks_usable_until) = attributes.data_usable_until {
-            if jwks_usable_until < std::time::SystemTime::now() {
+            if jwks_usable_until < chrono::offset::Utc::now() {
                 return Err(IdPError::DataTooOld());
             }
         }
@@ -244,7 +244,7 @@ where
         let update_attributes = self.attributes.clone();
         let update_base_url = self.base_url()?;
         let update_fn = move || {
-            let timestamp_attribute_refresh = std::time::SystemTime::now();
+            let timestamp_attribute_refresh = chrono::offset::Utc::now();
             let new_attrs =
                 Self::fetch_discovery_attributes(&update_reqwest, update_base_url.clone())?;
             let data_usable_until = JRS::usable_until(&timestamp_attribute_refresh)?;
@@ -277,7 +277,9 @@ where
     ///
     /// This is insecure if you use the IdP for more than ~2-3 minutes in time.
     /// If you use it longer, please use the default refresh strategy (or something similar).
-    pub fn set_no_idp_refresh_strategy(self) -> Result<IdP<APM, crate::types::AttributeSet>, IdPError> {
+    pub fn set_no_idp_refresh_strategy(
+        self,
+    ) -> Result<IdP<APM, crate::types::AttributeSet>, IdPError> {
         self.set_idp_refresh_strategy::<NoIdPDataRefreshStrategy>()
     }
 }
@@ -289,8 +291,8 @@ pub trait IdPRefreshStrategy: std::fmt::Debug + Clone + Send + Sync {
     ///
     /// last_refresh is the time the current IdP data got fetched.
     fn next_refresh(
-        last_refresh: &std::time::SystemTime,
-    ) -> Result<Option<std::time::SystemTime>, IdPError>;
+        last_refresh: &chrono::DateTime<chrono::Utc>,
+    ) -> Result<Option<chrono::DateTime<chrono::Utc>>, IdPError>;
 
     /// Sets a upper time limit until the current IDP data are considered valid.
     ///
@@ -298,8 +300,8 @@ pub trait IdPRefreshStrategy: std::fmt::Debug + Clone + Send + Sync {
     ///
     /// last_refresh is the time the current IdP data got fetched.
     fn usable_until(
-        last_refresh: &std::time::SystemTime,
-    ) -> Result<std::time::SystemTime, IdPError>;
+        last_refresh: &chrono::DateTime<chrono::Utc>,
+    ) -> Result<chrono::DateTime<chrono::Utc>, IdPError>;
 }
 
 /// A refresh strategy, which refreshes the IdP data every five minutes (regardless of any HTTP caching).
@@ -311,17 +313,17 @@ pub trait IdPRefreshStrategy: std::fmt::Debug + Clone + Send + Sync {
 #[derive(Debug, Clone)]
 pub struct DefaultIdPDataRefreshStrategy {}
 impl DefaultIdPDataRefreshStrategy {
-    const REFRESH_EVERY: std::time::Duration = std::time::Duration::from_secs(5 * 6);
+    const REFRESH_EVERY: std::time::Duration = std::time::Duration::from_secs(5 * 60);
     const MIN_REFRESH_DISTANCE: std::time::Duration = std::time::Duration::from_secs(5);
     const INVALIDATE_AFTER: std::time::Duration = std::time::Duration::from_secs(10 * 60);
 }
 
 impl IdPRefreshStrategy for DefaultIdPDataRefreshStrategy {
     fn next_refresh(
-        last_refresh: &std::time::SystemTime,
-    ) -> Result<Option<std::time::SystemTime>, IdPError> {
+        last_refresh: &chrono::DateTime<chrono::Utc>,
+    ) -> Result<Option<chrono::DateTime<chrono::Utc>>, IdPError> {
         let next_planned_refresh = *last_refresh + Self::REFRESH_EVERY;
-        let next_min_refresh = std::time::SystemTime::now() + Self::MIN_REFRESH_DISTANCE;
+        let next_min_refresh = chrono::offset::Utc::now() + Self::MIN_REFRESH_DISTANCE;
 
         if next_planned_refresh > next_min_refresh {
             log::trace!("Providing planned refresh timestamp");
@@ -332,8 +334,8 @@ impl IdPRefreshStrategy for DefaultIdPDataRefreshStrategy {
     }
 
     fn usable_until(
-        last_refresh: &std::time::SystemTime,
-    ) -> Result<std::time::SystemTime, IdPError> {
+        last_refresh: &chrono::DateTime<chrono::Utc>,
+    ) -> Result<chrono::DateTime<chrono::Utc>, IdPError> {
         Ok(*last_refresh + Self::INVALIDATE_AFTER)
     }
 }
@@ -351,16 +353,15 @@ impl NoIdPDataRefreshStrategy {
 }
 
 impl IdPRefreshStrategy for NoIdPDataRefreshStrategy {
-
     fn next_refresh(
-        _last_refresh: &std::time::SystemTime,
-    ) -> Result<Option<std::time::SystemTime>, IdPError> {
+        _last_refresh: &chrono::DateTime<chrono::Utc>,
+    ) -> Result<Option<chrono::DateTime<chrono::Utc>>, IdPError> {
         Ok(None)
     }
 
     fn usable_until(
-        last_refresh: &std::time::SystemTime,
-    ) -> Result<std::time::SystemTime, IdPError> {
+        last_refresh: &chrono::DateTime<chrono::Utc>,
+    ) -> Result<chrono::DateTime<chrono::Utc>, IdPError> {
         Ok(*last_refresh + Self::INVALIDATE_AFTER)
     }
 }
