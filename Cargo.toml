@@ -22,7 +22,9 @@ serde = { version = "1", features = ["std", "derive"] }
 serde_json = "1"
 url = { version = "2.5", features = ["serde"] }
 thiserror = "1.0"
-reqwest = { version = "0.12", features = ["http2", "rustls-tls-native-roots", "blocking", "brotli", "json"] }
+reqwest = { version = "0.12", features = ["http2", "rustls-tls-native-roots", "brotli", "json"] }
 # openidconnect = { git = "https://github.com/ramosbugs/openidconnect-rs.git", branch = "main", default-features = false, features = ["timing-resistant-secret-traits", "reqwest-blocking"] }
 openidconnect = { path = "../openidconnect-rs", default-features = false, features = ["timing-resistant-secret-traits", "reqwest-blocking", "jwt-access-token"] }
 chrono = "0.4"
+tokio = { version = "1.37.0", features = ["sync", "macros"] }
+tokio-util = { version = "0.7" }

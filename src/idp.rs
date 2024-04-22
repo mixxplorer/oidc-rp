@@ -17,9 +17,6 @@ pub enum IdPError {
     #[error("Next refresh is in past!")]
     NextRefreshFuture(#[from] std::time::SystemTimeError),
 
-    #[error("Unable to lock attribute RWLock. Lock seems to be poisoned.")]
-    AttributeLockError(),
-
     #[error("JWKs too old. Refresh might have failed.")]
     DataTooOld(),
 }
@@ -68,9 +65,9 @@ pub struct IdP<
     APM: openidconnect::AdditionalProviderMetadata,
     IsRefreshStrategySet: crate::types::AttributeState,
 {
-    attributes: std::sync::Arc<std::sync::RwLock<IdPAttributes<APM>>>,
-    pub reqwest_client: std::sync::Arc<reqwest::blocking::Client>,
-    idp_updater: Option<crate::updater::Updater<IdPError>>,
+    attributes: std::sync::Arc<tokio::sync::RwLock<IdPAttributes<APM>>>,
+    pub(crate) reqwest_client: std::sync::Arc<reqwest::Client>,
+    idp_updater: Option<std::sync::Arc<crate::updater::Updater<IdPError>>>,
 
     // see https://doc.rust-lang.org/std/marker/struct.PhantomData.html
     phantom: std::marker::PhantomData<IsRefreshStrategySet>,
@@ -103,8 +100,8 @@ where
     /// idp.jwks()
     /// ```
     ///
-    pub fn new(base_url: url::Url) -> Result<Self, IdPError> {
-        let reqwest_client = reqwest::blocking::Client::builder()
+    pub async fn new(base_url: url::Url) -> Result<Self, IdPError> {
+        let reqwest_client = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!(
                 env!("CARGO_PKG_NAME"),
@@ -115,10 +112,10 @@ where
             .map_err(|_| IdPError::FetchError)?;
         let reqwest_client_arc = std::sync::Arc::new(reqwest_client);
         let discovery_attributes =
-            Self::fetch_discovery_attributes(&reqwest_client_arc, base_url.clone())?;
+            Self::fetch_discovery_attributes(&reqwest_client_arc, base_url.clone()).await?;
 
         Ok(Self {
-            attributes: std::sync::RwLock::new(IdPAttributes::<APM> {
+            attributes: tokio::sync::RwLock::new(IdPAttributes::<APM> {
                 base_url,
                 discovery: discovery_attributes,
                 jwk_set: openidconnect::JsonWebKeySet::new(vec![]),
@@ -132,31 +129,26 @@ where
         })
     }
 
-    fn fetch_discovery_attributes(
-        reqwest_client: &reqwest::blocking::Client,
+    async fn fetch_discovery_attributes(
+        reqwest_client: &reqwest::Client,
         base_url: url::Url,
     ) -> Result<IdPAttributesDiscovery<APM>, IdPError> {
-        Ok(IdPAttributesDiscovery::<APM>::discover(
-            &openidconnect::IssuerUrl::from_url(base_url),
+        Ok(IdPAttributesDiscovery::<APM>::discover_async(
+            openidconnect::IssuerUrl::from_url(base_url),
             reqwest_client,
-        )?)
+        )
+        .await?)
     }
 
     /// Returns all attributes of the object. Intended to share state of IdP with other processes
-    pub fn attributes(&self) -> Result<IdPAttributes<APM>, IdPError> {
-        let attrs = self
-            .attributes
-            .read()
-            .map_err(|_| IdPError::AttributeLockError())?;
+    pub async fn attributes(&self) -> Result<IdPAttributes<APM>, IdPError> {
+        let attrs = self.attributes.read().await;
         Ok(attrs.clone())
     }
 
     /// Returns base url passed during construction of object
-    pub fn base_url(&self) -> Result<url::Url, IdPError> {
-        let attrs = self
-            .attributes
-            .read()
-            .map_err(|_| IdPError::AttributeLockError())?;
+    pub async fn base_url(&self) -> Result<url::Url, IdPError> {
+        let attrs = self.attributes.read().await;
         Ok(attrs.base_url.clone())
     }
 
@@ -175,11 +167,8 @@ where
     ///
     /// Returns up-to-date IdP data according to the refresh policy in use.
     /// Errors if data is too old.
-    pub fn discovery_attributes(&self) -> Result<IdPAttributesDiscovery<APM>, IdPError> {
-        let attributes = self
-            .attributes
-            .read()
-            .map_err(|_| IdPError::AttributeLockError())?;
+    pub async fn discovery_attributes(&self) -> Result<IdPAttributesDiscovery<APM>, IdPError> {
+        let attributes = self.attributes.read().await;
 
         // Check whether the IDP data got updated recently enough
         if let Some(jwks_usable_until) = attributes.data_usable_until {
@@ -194,8 +183,8 @@ where
     /// Returns the JWKS of the IdP.
     ///
     /// Returns up-to-date JWKS according to the refresh policy in use. Errors if data is too old.
-    pub fn jwks(&self) -> Result<openidconnect::JsonWebKeySet<IdPJsonWebKey>, IdPError> {
-        Ok(self.discovery_attributes()?.jwks().clone())
+    pub async fn jwks(&self) -> Result<openidconnect::JsonWebKeySet<IdPJsonWebKey>, IdPError> {
+        Ok(self.discovery_attributes().await?.jwks().clone())
     }
 }
 
@@ -207,11 +196,10 @@ where
     /// Returns possibly outdated discovery attributes.
     ///
     /// Returns discovery attributes which were fetched during object creation.
-    pub fn discovery_attributes_outdated(&self) -> Result<IdPAttributesDiscovery<APM>, IdPError> {
-        let attributes = self
-            .attributes
-            .read()
-            .map_err(|_| IdPError::AttributeLockError())?;
+    pub async fn discovery_attributes_outdated(
+        &self,
+    ) -> Result<IdPAttributesDiscovery<APM>, IdPError> {
+        let attributes = self.attributes.read().await;
 
         Ok(attributes.discovery.clone())
     }
@@ -219,68 +207,50 @@ where
     /// Returns posisbly outdated JWKS of the IdP.
     ///
     /// Returns JWKS which were fetched during object creation.
-    pub fn jwks_outdated(&self) -> Result<openidconnect::JsonWebKeySet<IdPJsonWebKey>, IdPError> {
-        Ok(self.discovery_attributes_outdated()?.jwks().clone())
+    pub async fn jwks_outdated(
+        &self,
+    ) -> Result<openidconnect::JsonWebKeySet<IdPJsonWebKey>, IdPError> {
+        Ok(self.discovery_attributes_outdated().await?.jwks().clone())
     }
 
     /// Sets the JWKS refresh strategy and enables refreshing JWKS
-    pub fn set_idp_refresh_strategy<JRS>(
+    pub async fn set_idp_refresh_strategy<JRS>(
         self,
     ) -> Result<IdP<APM, crate::types::AttributeSet>, IdPError>
     where
-        JRS: IdPRefreshStrategy,
+        JRS: IdPRefreshStrategy + 'static,
     {
-        let next_refresh_attributes = self.attributes.clone();
-        let next_refresh_fn = move || {
-            JRS::next_refresh(&{
-                next_refresh_attributes
-                    .read()
-                    .map_err(|_| IdPError::AttributeLockError())?
-                    .last_data_refresh
-            })
-        };
-
-        let update_reqwest = self.reqwest_client.clone();
-        let update_attributes = self.attributes.clone();
-        let update_base_url = self.base_url()?;
-        let update_fn = move || {
-            let timestamp_attribute_refresh = chrono::offset::Utc::now();
-            let new_attrs =
-                Self::fetch_discovery_attributes(&update_reqwest, update_base_url.clone())?;
-            let data_usable_until = JRS::usable_until(&timestamp_attribute_refresh)?;
-            {
-                let mut writable_attributes = update_attributes
-                    .write()
-                    .map_err(|_| IdPError::AttributeLockError())?;
-                writable_attributes.discovery = new_attrs;
-                writable_attributes.data_usable_until = Some(data_usable_until);
-                writable_attributes.last_data_refresh = timestamp_attribute_refresh;
-            }
-            Ok::<(), IdPError>(())
+        let refresh_impl = RefreshImpl {
+            reqwest_client: self.reqwest_client.clone(),
+            attributes: self.attributes.clone(),
+            base_url: self.base_url().await?,
+            phantom_jrs: std::marker::PhantomData::<JRS>,
         };
         Ok(IdP {
             attributes: self.attributes,
             reqwest_client: self.reqwest_client,
-            idp_updater: Some(crate::updater::Updater::new(next_refresh_fn, update_fn)),
+            idp_updater: Some(crate::updater::Updater::new(refresh_impl).into()),
             phantom: std::marker::PhantomData,
         })
     }
 
     /// Sets the IdP data refresh strategy to the default one and start refreshing IdP data
-    pub fn set_default_idp_refresh_strategy(
+    pub async fn set_default_idp_refresh_strategy(
         self,
     ) -> Result<IdP<APM, crate::types::AttributeSet>, IdPError> {
         self.set_idp_refresh_strategy::<DefaultIdPDataRefreshStrategy>()
+            .await
     }
 
     /// Set IdP data refresh strategy to a noop. This might be insecure!
     ///
     /// This is insecure if you use the IdP for more than ~2-3 minutes in time.
     /// If you use it longer, please use the default refresh strategy (or something similar).
-    pub fn set_no_idp_refresh_strategy(
+    pub async fn set_no_idp_refresh_strategy(
         self,
     ) -> Result<IdP<APM, crate::types::AttributeSet>, IdPError> {
         self.set_idp_refresh_strategy::<NoIdPDataRefreshStrategy>()
+            .await
     }
 }
 
@@ -302,6 +272,48 @@ pub trait IdPRefreshStrategy: std::fmt::Debug + Clone + Send + Sync {
     fn usable_until(
         last_refresh: &chrono::DateTime<chrono::Utc>,
     ) -> Result<chrono::DateTime<chrono::Utc>, IdPError>;
+}
+
+#[derive(Debug, Clone)]
+struct RefreshImpl<APM, JRS>
+where
+    APM: openidconnect::AdditionalProviderMetadata,
+    JRS: IdPRefreshStrategy,
+{
+    reqwest_client: std::sync::Arc<reqwest::Client>,
+    attributes: std::sync::Arc<tokio::sync::RwLock<IdPAttributes<APM>>>,
+    base_url: url::Url,
+    phantom_jrs: std::marker::PhantomData<JRS>,
+}
+
+impl<APM, JRS> crate::updater::UpdaterImpl<IdPError> for RefreshImpl<APM, JRS>
+where
+    APM: openidconnect::AdditionalProviderMetadata + Send + std::marker::Sync + 'static,
+    JRS: IdPRefreshStrategy,
+{
+    async fn get_next_update_time(
+        &self,
+    ) -> Result<Option<chrono::DateTime<chrono::Utc>>, IdPError> {
+        JRS::next_refresh(&{ self.attributes.clone().read().await.last_data_refresh })
+    }
+
+    async fn do_update(&self) -> Result<(), IdPError> {
+        let timestamp_attribute_refresh = chrono::offset::Utc::now();
+        let new_attrs = IdP::<APM, crate::types::AttributeSet>::fetch_discovery_attributes(
+            &self.reqwest_client,
+            self.base_url.clone(),
+        )
+        .await?;
+        let data_usable_until = JRS::usable_until(&timestamp_attribute_refresh)?;
+        {
+            let mut writable_attributes = self.attributes.write().await;
+            writable_attributes.discovery = new_attrs;
+            writable_attributes.data_usable_until = Some(data_usable_until);
+            writable_attributes.last_data_refresh = timestamp_attribute_refresh;
+            log::trace!("Updated IdP Metadata!");
+        }
+        Ok::<(), IdPError>(())
+    }
 }
 
 /// A refresh strategy, which refreshes the IdP data every five minutes (regardless of any HTTP caching).
@@ -349,7 +361,7 @@ impl IdPRefreshStrategy for DefaultIdPDataRefreshStrategy {
 #[derive(Debug, Clone)]
 pub struct NoIdPDataRefreshStrategy {}
 impl NoIdPDataRefreshStrategy {
-    const INVALIDATE_AFTER: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+    const INVALIDATE_AFTER: std::time::Duration = std::time::Duration::from_secs(10 * 6);
 }
 
 impl IdPRefreshStrategy for NoIdPDataRefreshStrategy {

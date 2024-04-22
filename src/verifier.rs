@@ -126,12 +126,12 @@ where
         self
     }
 
-    pub fn verify_access_token(
+    pub async fn verify_access_token(
         &self,
         jwt: &str,
     ) -> Result<JwtAccessTokenClaims<AC>, VerifierError> {
         let client = crate::types::OidcClient::from_provider_metadata(
-            self.idp.discovery_attributes()?,
+            self.idp.discovery_attributes().await?,
             self.client_id.clone(),
             None,
         );

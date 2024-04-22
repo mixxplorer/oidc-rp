@@ -11,11 +11,16 @@ pub struct CliArguments {
     #[clap(flatten)]
     log_level: clap_verbosity_flag::Verbosity,
 
-    #[arg(short, long, help = "Base URL of IdP, e.g. https://keycloak.example.org/realms/your-realm")]
+    #[arg(
+        short,
+        long,
+        help = "Base URL of IdP, e.g. https://keycloak.example.org/realms/your-realm"
+    )]
     idp_url: String,
 }
 
-fn main() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     let args = CliArguments::parse();
 
     simple_logger::SimpleLogger::new()
@@ -31,17 +36,19 @@ fn main() -> anyhow::Result<()> {
     {
         let idp = oidc_rp::idp::IdP::<oidc_rp::idp::EmptyAdditionalIdPMetadata>::new(
             url::Url::parse(&args.idp_url)?,
-        )?
-        .set_default_idp_refresh_strategy()?;
+        )
+        .await?
+        .set_default_idp_refresh_strategy()
+        .await?;
 
-        log::debug!("JWKS: {:?}", idp.jwks());
+        log::debug!("JWKS: {:?}", idp.jwks().await?);
 
         std::thread::sleep(std::time::Duration::new(65, 0));
 
-        log::debug!("JWKS: {:?}", idp.jwks());
+        log::debug!("JWKS: {:?}", idp.jwks().await);
     }
 
-    std::thread::sleep(std::time::Duration::new(60, 0));
+    // std::thread::sleep(std::time::Duration::new(60, 0));
 
     Ok(())
 }
