@@ -46,15 +46,20 @@ async fn main() -> anyhow::Result<()> {
         .set_no_idp_refresh_strategy()
         .await?;
 
-        let username = oidc_rp::oidc::ResourceOwnerUsername::new(args.username);
-        let password = oidc_rp::oidc::ResourceOwnerPassword::new(args.password);
-
+        let verifier = oidc_rp::verifier::Verifier::<oidc_rp::oidc::EmptyAdditionalClaims>::new(
+            idp.clone(),
+            args.client_id.clone(),
+        )?
+        .allow_all_access_token_jose_types()
+        .set_other_audience_verifier_fn(|_| true);
         let account: oidc_rp::account::Account<oidc_rp::oidc::EmptyAdditionalProviderMetadata, _> =
-            oidc_rp::account::Account::new_public(idp, args.client_id.clone());
+            oidc_rp::account::Account::new_public(idp, args.client_id.clone(), verifier);
 
-        let account = account.exchange_password(&username, &password).await?;
+        let account = account
+            .exchange_password(args.username, args.password)
+            .await?;
 
-        log::info!("Access token: {:?}", account.get_access_token().await);
+        log::info!("Access token: {:?}", account.get_access_token().await?);
 
         account.get_access_token().await?.clone()
     };
@@ -72,7 +77,7 @@ async fn main() -> anyhow::Result<()> {
 
         let verifier = oidc_rp::verifier::Verifier::<oidc_rp::oidc::EmptyAdditionalClaims>::new(
             idp,
-            oidc_rp::oidc::ClientId::new(args.client_id),
+            args.client_id,
         )?
         .allow_all_access_token_jose_types()
         .set_other_audience_verifier_fn(|_| true);
