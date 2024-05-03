@@ -339,7 +339,7 @@ where
             .add_scopes(
                 scopes
                     .into_iter()
-                    .map(|scope| openidconnect::Scope::new(scope)),
+                    .map(openidconnect::Scope::new),
             )
             .url();
 

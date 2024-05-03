@@ -83,11 +83,7 @@ struct LocalStorageAuthorizePkceStateStore {
 
 impl LocalStorageAuthorizePkceStateStore {
     fn remove_expired_authorizations(mut self) -> Self {
-        self.authorizations = self
-            .authorizations
-            .into_iter()
-            .filter(|(_key, value)| value.expiration > chrono::offset::Utc::now())
-            .collect();
+        self.authorizations.retain(|_key, value| value.expiration > chrono::offset::Utc::now());
         self
     }
 }
@@ -163,7 +159,7 @@ where
 
     let (_, code) = url
         .query_pairs()
-        .find(|(key, _value)| *key == "code".to_string())
+        .find(|(key, _value)| &*key == "code")
         .ok_or(WasmError::QueryParamsMissing("state".to_string()))?;
 
     let redirect_url = auth_state.state.redirect_url.clone();
@@ -285,7 +281,7 @@ fn verify_and_optionally_redirect_to_redirect_uri(
     }
     {
         let window_location_part = window.location().protocol()?;
-        let redirect_uri_part = format!("{}:", redirect_uri.scheme().to_string()); // see https://developer.mozilla.org/en-US/docs/Web/API/Location/protocol
+        let redirect_uri_part = format!("{}:", redirect_uri.scheme()); // see https://developer.mozilla.org/en-US/docs/Web/API/Location/protocol
         if window_location_part != redirect_uri_part {
             return Err(WasmError::InvalidRedirectUri(format!(
                 "Host protocol '{}' != '{}'",

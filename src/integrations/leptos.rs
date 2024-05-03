@@ -81,7 +81,7 @@ where
                                         // leptos_router::Redirect(leptos_router::RedirectProps { path: redirect_uri.path().to_string(), options: Some() });
                                         let navigate = leptos_router::use_navigate();
                                         navigate(
-                                            &redirect_uri.to_string(),
+                                            redirect_uri.as_ref(),
                                             leptos_router::NavigateOptions {
                                                 resolve: false,
                                                 replace: true,
