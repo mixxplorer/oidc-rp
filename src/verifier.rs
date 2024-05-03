@@ -13,6 +13,15 @@ pub enum VerifierError {
 
     #[error("No IDP refresh strategy set!")]
     NoIdPDataRefreshStrategy(),
+
+    #[error("Unable to verify signature of token!")]
+    TokenSignatureVerificationError(#[from] openidconnect::SignatureVerificationError),
+
+    #[error("Unable to calculate signature of token!")]
+    TokenSignatureCalculationError(#[from] openidconnect::SigningError),
+
+    #[error("Expected token hash does not match with calculated token hash!")]
+    TokenSignatureMismatchError(),
 }
 
 pub type JwtAccessTokenClaims<AC> =
@@ -25,16 +34,28 @@ pub(crate) type JwtAccessToken<AC> = openidconnect::JwtAccessToken<
     openidconnect::core::CoreJwsSigningAlgorithm,
 >;
 
+pub type IdTokenClaims<AC> = openidconnect::IdTokenClaims<AC, openidconnect::core::CoreGenderClaim>;
+
+pub(crate) type IdToken<AC> = openidconnect::IdToken<
+    AC,
+    openidconnect::core::CoreGenderClaim,
+    openidconnect::core::CoreJweContentEncryptionAlgorithm,
+    openidconnect::core::CoreJwsSigningAlgorithm,
+>;
+
+#[derive(Debug)]
 pub struct Verifier<
     AC = openidconnect::EmptyAdditionalClaims,
     APM = crate::idp::EmptyAdditionalIdPMetadata,
 > where
-    APM: openidconnect::AdditionalProviderMetadata,
+    APM: openidconnect::AdditionalProviderMetadata + PartialEq,
 {
     idp: crate::idp::IdP<APM, crate::types::AttributeSet>,
     client_id: openidconnect::ClientId,
     access_token_allowed_signing_algs: Option<Vec<openidconnect::core::CoreJwsSigningAlgorithm>>,
+    id_token_allowed_signing_algs: Option<Vec<openidconnect::core::CoreJwsSigningAlgorithm>>,
     access_token_allowed_jose_types: Option<Vec<openidconnect::JsonWebTokenType>>,
+    id_token_allowed_jose_types: Option<Vec<openidconnect::JsonWebTokenType>>,
     other_audience_verifier_fn: fn(&openidconnect::Audience) -> bool,
     verify_own_audience: bool,
 
@@ -45,12 +66,12 @@ pub struct Verifier<
 impl<AC, APM> Verifier<AC, APM>
 where
     AC: openidconnect::AdditionalClaims,
-    APM: openidconnect::AdditionalProviderMetadata + Send + Sync + 'static,
+    APM: openidconnect::AdditionalProviderMetadata + PartialEq + Send + Sync + 'static,
 {
     /// oidc_rp::oidc::EmptyAdditionalClaims
     pub fn new(
         idp: crate::idp::IdP<APM, crate::types::AttributeSet>,
-        client_id: openidconnect::ClientId,
+        client_id: String,
     ) -> Result<Self, VerifierError> {
         // check whether idp is refreshing its metadata on a regular basis
         if !idp.has_jwks_refresh_strategy() {
@@ -67,15 +88,26 @@ where
             openidconnect::core::CoreJwsSigningAlgorithm::EcdsaP521Sha512,
             openidconnect::core::CoreJwsSigningAlgorithm::EdDsa,
         ]);
+        let id_token_allowed_signing_algs = Some(vec![
+            openidconnect::core::CoreJwsSigningAlgorithm::RsaSsaPkcs1V15Sha256,
+            openidconnect::core::CoreJwsSigningAlgorithm::RsaSsaPkcs1V15Sha384,
+            openidconnect::core::CoreJwsSigningAlgorithm::RsaSsaPkcs1V15Sha512,
+            openidconnect::core::CoreJwsSigningAlgorithm::EcdsaP256Sha256,
+            openidconnect::core::CoreJwsSigningAlgorithm::EcdsaP384Sha384,
+            openidconnect::core::CoreJwsSigningAlgorithm::EcdsaP521Sha512,
+            openidconnect::core::CoreJwsSigningAlgorithm::EdDsa,
+        ]);
         let access_token_allowed_jose_types = Some(vec![
             openidconnect::JsonWebTokenType::new("at+jwt".to_string()),
             openidconnect::JsonWebTokenType::new("application/at+jwt".to_string()),
         ]);
         Ok(Self {
             idp,
-            client_id,
+            client_id: openidconnect::ClientId::new(client_id),
             access_token_allowed_signing_algs,
+            id_token_allowed_signing_algs,
             access_token_allowed_jose_types,
+            id_token_allowed_jose_types: None,
             other_audience_verifier_fn: |_| false,
             verify_own_audience: true,
             phantom_additional_claims: std::marker::PhantomData,
@@ -83,20 +115,20 @@ where
     }
 
     /// Verifier to just extract the expiry time of access tokens
-    pub(crate) fn new_account_verifier(
-        idp: crate::idp::IdP<APM, crate::types::AttributeSet>,
-        client_id: openidconnect::ClientId,
-    ) -> Result<Self, VerifierError> {
-        Ok(Self {
-            idp,
-            client_id,
-            access_token_allowed_signing_algs: None,
-            access_token_allowed_jose_types: None,
-            other_audience_verifier_fn: |_| true,
-            verify_own_audience: false,
-            phantom_additional_claims: std::marker::PhantomData,
-        })
-    }
+    // pub(crate) fn new_account_verifier(
+    //     idp: crate::idp::IdP<APM, crate::types::AttributeSet>,
+    //     client_id: openidconnect::ClientId,
+    // ) -> Result<Self, VerifierError> {
+    //     Ok(Self {
+    //         idp,
+    //         client_id,
+    //         access_token_allowed_signing_algs: None,
+    //         access_token_allowed_jose_types: None,
+    //         other_audience_verifier_fn: |_| true,
+    //         verify_own_audience: false,
+    //         phantom_additional_claims: std::marker::PhantomData,
+    //     })
+    // }
 
     pub fn set_access_token_allowed_singing_algs(
         mut self,
@@ -130,6 +162,16 @@ where
         &self,
         jwt: &str,
     ) -> Result<JwtAccessTokenClaims<AC>, VerifierError> {
+        self.verify_access_token_with_hash(jwt, None).await
+    }
+
+    /// Helper function to verify an access token with hash as required during token fetching.
+    /// As token fetching is done solely internally, we do not expose this function.
+    pub(crate) async fn verify_access_token_with_hash(
+        &self,
+        jwt_str: &str,
+        expected_access_token_hash: Option<openidconnect::AccessTokenHash>,
+    ) -> Result<JwtAccessTokenClaims<AC>, VerifierError> {
         let client = crate::types::OidcClient::from_provider_metadata(
             self.idp.discovery_attributes().await?,
             self.client_id.clone(),
@@ -137,7 +179,7 @@ where
         );
 
         // parse JWT from string
-        let jwt: JwtAccessToken<AC> = openidconnect::JwtAccessToken::from_str(jwt)?;
+        let jwt: JwtAccessToken<AC> = openidconnect::JwtAccessToken::from_str(jwt_str)?;
 
         let mut verifier = client
             .jwt_access_token_verifier()
@@ -157,6 +199,76 @@ where
             verifier = verifier.allow_all_jose_types();
         }
 
+        if let Some(expected_access_token_hash) = expected_access_token_hash {
+            let calculated_access_token_hash = openidconnect::AccessTokenHash::from_token(
+                &openidconnect::AccessToken::new(jwt_str.to_string()),
+                // this might be insecure if the token is not transferred via TLS directly between RP and IdP, but we catch unsigned tokens here
+                jwt.signing_alg()?,
+                jwt.signing_key(&verifier)?,
+            )?;
+            if calculated_access_token_hash != expected_access_token_hash {}
+        }
+
         Ok(jwt.into_claims(&verifier)?)
+    }
+
+    /// Verify an identity token.
+    ///
+    /// Security warning: Be careful when passing None as nonce. This nonce is required e.g. to prevent replay attacks in SPA applications. If you can, please set it.
+    /// See also https://openid.net/specs/openid-connect-core-1_0.html#IDToken
+    pub async fn verify_identity_token(
+        &self,
+        jwt: &str,
+        nonce: Option<openidconnect::Nonce>,
+    ) -> Result<IdTokenClaims<AC>, VerifierError> {
+        let client = crate::types::OidcClient::from_provider_metadata(
+            self.idp.discovery_attributes().await?,
+            self.client_id.clone(),
+            None,
+        );
+
+        // parse JWT from string
+        let jwt: IdToken<AC> = openidconnect::IdToken::from_str(jwt)?;
+
+        let mut verifier = client
+            .id_token_verifier()
+            .require_audience_match(true)
+            .require_issuer_match(true)
+            .require_audience_match(self.verify_own_audience)
+            .enable_signature_check() // see RFC 9068 2.1
+            .set_other_audience_verifier_fn(self.other_audience_verifier_fn);
+
+        if let Some(allowed_algs) = self.id_token_allowed_signing_algs.clone() {
+            verifier = verifier.set_allowed_algs(allowed_algs);
+        }
+
+        if let Some(types) = &self.id_token_allowed_jose_types {
+            verifier = verifier.set_allowed_jose_types(types.clone());
+        } else {
+            verifier = verifier.allow_all_jose_types();
+        }
+
+        let nonce_verifier = |token_nonce_option: Option<&openidconnect::Nonce>| {
+            match nonce {
+                Some(unpacked_nonce) => {
+                    openidconnect::NonceVerifier::verify(&unpacked_nonce, token_nonce_option)
+                }
+                None => {
+                    match token_nonce_option {
+                        Some(_) => {
+                            Err("No nonce given to verify, but one was noted in the token!"
+                                .to_string())
+                        }
+                        None => {
+                            // Just do not verify the nonce as we do not have a nonce to verify.
+                            // This is fine e.g. for direct grants and other flows where the handler is not handing control flow over to untrusted client.
+                            Ok(())
+                        }
+                    }
+                }
+            }
+        };
+
+        Ok(jwt.into_claims(&verifier, nonce_verifier)?)
     }
 }

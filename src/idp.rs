@@ -39,17 +39,27 @@ type IdPAttributesDiscovery<APM> = openidconnect::ProviderMetadata<
     openidconnect::core::CoreSubjectIdentifierType,
 >;
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct IdPAttributes<APM = EmptyAdditionalIdPMetadata>
 where
-    APM: openidconnect::AdditionalProviderMetadata,
+    APM: openidconnect::AdditionalProviderMetadata + PartialEq,
 {
     base_url: url::Url,
     #[serde(bound(deserialize = "APM: openidconnect::AdditionalProviderMetadata"))]
     discovery: IdPAttributesDiscovery<APM>,
-    jwk_set: openidconnect::JsonWebKeySet<openidconnect::core::CoreJsonWebKey>,
     last_data_refresh: chrono::DateTime<chrono::Utc>,
     data_usable_until: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, PartialEq)]
+pub struct IdPAttributesShare<APM = EmptyAdditionalIdPMetadata>
+where
+    APM: openidconnect::AdditionalProviderMetadata + PartialEq,
+{
+    #[serde(bound(deserialize = "APM: openidconnect::AdditionalProviderMetadata"))]
+    attributes: IdPAttributes<APM>,
+    // we have an extra field for JWKS as these are not serialized or deserialized with the IdPAttributesDiscovery struct
+    jwk_set: openidconnect::JsonWebKeySet<openidconnect::core::CoreJsonWebKey>,
 }
 
 /// Identity Provider Object to provide information about the Identity Provider.
@@ -62,7 +72,7 @@ pub struct IdP<
     APM = EmptyAdditionalIdPMetadata,
     IsRefreshStrategySet = crate::types::AttributeNotSet,
 > where
-    APM: openidconnect::AdditionalProviderMetadata,
+    APM: openidconnect::AdditionalProviderMetadata + PartialEq,
     IsRefreshStrategySet: crate::types::AttributeState,
 {
     attributes: std::sync::Arc<tokio::sync::RwLock<IdPAttributes<APM>>>,
@@ -75,7 +85,7 @@ pub struct IdP<
 
 impl<APM, IsRefreshStrategySet> IdP<APM, IsRefreshStrategySet>
 where
-    APM: openidconnect::AdditionalProviderMetadata + Sync + Send + 'static,
+    APM: openidconnect::AdditionalProviderMetadata + PartialEq + Sync + Send + 'static,
     IsRefreshStrategySet: crate::types::AttributeState,
 {
     /// Creates a new identity provider object.
@@ -101,16 +111,7 @@ where
     /// ```
     ///
     pub async fn new(base_url: url::Url) -> Result<Self, IdPError> {
-        let reqwest_client = reqwest::Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .user_agent(concat!(
-                env!("CARGO_PKG_NAME"),
-                "/",
-                env!("CARGO_PKG_VERSION"),
-            ))
-            .build()
-            .map_err(|_| IdPError::FetchError)?;
-        let reqwest_client_arc = std::sync::Arc::new(reqwest_client);
+        let reqwest_client_arc = std::sync::Arc::new(Self::build_reqwest_client()?);
         let discovery_attributes =
             Self::fetch_discovery_attributes(&reqwest_client_arc, base_url.clone()).await?;
 
@@ -118,7 +119,6 @@ where
             attributes: tokio::sync::RwLock::new(IdPAttributes::<APM> {
                 base_url,
                 discovery: discovery_attributes,
-                jwk_set: openidconnect::JsonWebKeySet::new(vec![]),
                 last_data_refresh: chrono::offset::Utc::now(),
                 data_usable_until: None,
             })
@@ -127,6 +127,23 @@ where
             idp_updater: None,
             phantom: std::marker::PhantomData,
         })
+    }
+
+    fn build_reqwest_client() -> Result<reqwest::Client, IdPError> {
+        let reqwest_client = reqwest::Client::builder();
+        // cannot control redirects in wasm mode as browser handles requests
+        #[cfg(not(target_arch = "wasm32"))]
+        // do not set redirect policy as this is handled by browser
+        let reqwest_client = reqwest_client
+            .redirect(reqwest::redirect::Policy::none())
+            // do not set user agent as this might not be allowed due to CORS
+            .user_agent(concat!(
+                env!("CARGO_PKG_NAME"),
+                "/",
+                env!("CARGO_PKG_VERSION"),
+            ))
+            .referer(false);
+        reqwest_client.build().map_err(|_| IdPError::FetchError)
     }
 
     async fn fetch_discovery_attributes(
@@ -140,7 +157,16 @@ where
         .await?)
     }
 
-    /// Returns all attributes of the object. Intended to share state of IdP with other processes
+    /// Returns state of IdP to share in between processes. Intended to save on metadata requests.
+    pub async fn state(&self) -> Result<IdPAttributesShare<APM>, IdPError> {
+        let orig_attrs = self.attributes.read().await;
+        Ok(IdPAttributesShare {
+            attributes: orig_attrs.clone(),
+            jwk_set: orig_attrs.discovery.jwks().clone(),
+        })
+    }
+
+    /// Returns all attributes of the object.
     pub async fn attributes(&self) -> Result<IdPAttributes<APM>, IdPError> {
         let attrs = self.attributes.read().await;
         Ok(attrs.clone())
@@ -158,10 +184,35 @@ where
     }
 }
 
+impl<APM> TryFrom<IdPAttributesShare<APM>> for IdP<APM, crate::types::AttributeNotSet>
+where
+    APM: openidconnect::AdditionalProviderMetadata + PartialEq + Sync + Send + 'static,
+{
+    type Error = IdPError;
+
+    /// Supports converting attributes to a full fledged IdP object.
+    fn try_from(
+        value: IdPAttributesShare<APM>,
+    ) -> Result<IdP<APM, crate::types::AttributeNotSet>, Self::Error> {
+        let reqwest_client_arc = std::sync::Arc::new(Self::build_reqwest_client()?);
+
+        // restore correct JWKS
+        let mut attrs = value.attributes;
+        attrs.discovery = attrs.discovery.set_jwks(value.jwk_set);
+
+        Ok(Self {
+            attributes: tokio::sync::RwLock::new(attrs).into(),
+            reqwest_client: reqwest_client_arc,
+            idp_updater: None,
+            phantom: std::marker::PhantomData,
+        })
+    }
+}
+
 /// Functions only available if a refresh strategy is in place
 impl<APM> IdP<APM, crate::types::AttributeSet>
 where
-    APM: openidconnect::AdditionalProviderMetadata + Sync + Send + 'static,
+    APM: openidconnect::AdditionalProviderMetadata + PartialEq + Sync + Send + 'static,
 {
     /// Returns up-to-date discovery attributes according to IdP data refresh strategy.
     ///
@@ -191,7 +242,7 @@ where
 /// Functions only available if a refresh strategy is not in place
 impl<APM> IdP<APM, crate::types::AttributeNotSet>
 where
-    APM: openidconnect::AdditionalProviderMetadata + Sync + Send + 'static,
+    APM: openidconnect::AdditionalProviderMetadata + PartialEq + Sync + Send + 'static,
 {
     /// Returns possibly outdated discovery attributes.
     ///
@@ -214,17 +265,17 @@ where
     }
 
     /// Sets the JWKS refresh strategy and enables refreshing JWKS
-    pub async fn set_idp_refresh_strategy<JRS>(
+    pub async fn set_idp_refresh_strategy<IRS>(
         self,
     ) -> Result<IdP<APM, crate::types::AttributeSet>, IdPError>
     where
-        JRS: IdPRefreshStrategy + 'static,
+        IRS: IdPRefreshStrategy + 'static,
     {
         let refresh_impl = RefreshImpl {
             reqwest_client: self.reqwest_client.clone(),
             attributes: self.attributes.clone(),
             base_url: self.base_url().await?,
-            phantom_jrs: std::marker::PhantomData::<JRS>,
+            phantom_irs: std::marker::PhantomData::<IRS>,
         };
         Ok(IdP {
             attributes: self.attributes,
@@ -275,26 +326,26 @@ pub trait IdPRefreshStrategy: std::fmt::Debug + Clone + Send + Sync {
 }
 
 #[derive(Debug, Clone)]
-struct RefreshImpl<APM, JRS>
+struct RefreshImpl<APM, IRS>
 where
-    APM: openidconnect::AdditionalProviderMetadata,
-    JRS: IdPRefreshStrategy,
+    APM: openidconnect::AdditionalProviderMetadata + PartialEq,
+    IRS: IdPRefreshStrategy,
 {
     reqwest_client: std::sync::Arc<reqwest::Client>,
     attributes: std::sync::Arc<tokio::sync::RwLock<IdPAttributes<APM>>>,
     base_url: url::Url,
-    phantom_jrs: std::marker::PhantomData<JRS>,
+    phantom_irs: std::marker::PhantomData<IRS>,
 }
 
-impl<APM, JRS> crate::updater::UpdaterImpl<IdPError> for RefreshImpl<APM, JRS>
+impl<APM, IRS> crate::updater::UpdaterImpl<IdPError> for RefreshImpl<APM, IRS>
 where
-    APM: openidconnect::AdditionalProviderMetadata + Send + std::marker::Sync + 'static,
-    JRS: IdPRefreshStrategy,
+    APM: openidconnect::AdditionalProviderMetadata + PartialEq + Send + std::marker::Sync + 'static,
+    IRS: IdPRefreshStrategy,
 {
     async fn get_next_update_time(
         &self,
     ) -> Result<Option<chrono::DateTime<chrono::Utc>>, IdPError> {
-        JRS::next_refresh(&{ self.attributes.clone().read().await.last_data_refresh })
+        IRS::next_refresh(&{ self.attributes.clone().read().await.last_data_refresh })
     }
 
     async fn do_update(&self) -> Result<(), IdPError> {
@@ -304,7 +355,7 @@ where
             self.base_url.clone(),
         )
         .await?;
-        let data_usable_until = JRS::usable_until(&timestamp_attribute_refresh)?;
+        let data_usable_until = IRS::usable_until(&timestamp_attribute_refresh)?;
         {
             let mut writable_attributes = self.attributes.write().await;
             writable_attributes.discovery = new_attrs;

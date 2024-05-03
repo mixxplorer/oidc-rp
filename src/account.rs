@@ -44,12 +44,28 @@ pub struct AccountTokens {
     id_token: Option<String>,
 }
 
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct AuthorizePkceState {
+    pub pkce_verifier: openidconnect::PkceCodeVerifier,
+    pub csrf_token: openidconnect::CsrfToken,
+    pub nonce: openidconnect::Nonce,
+    pub callback_url: url::Url,
+    pub redirect_url: url::Url,
+}
+
+#[derive(Debug, Clone)]
 pub struct Account<
     APM = crate::idp::EmptyAdditionalIdPMetadata,
     AreAccountTokenAvailable = crate::types::AttributeNotSet,
+    AC = openidconnect::EmptyAdditionalClaims,
 > where
-    APM: openidconnect::AdditionalProviderMetadata + Send + Sync,
-    AreAccountTokenAvailable: crate::types::AttributeState,
+    APM: openidconnect::AdditionalProviderMetadata
+        + PartialEq
+        + Send
+        + Sync
+        + serde::de::DeserializeOwned,
+    AreAccountTokenAvailable: crate::types::AttributeState + serde::de::DeserializeOwned,
+    AC: openidconnect::AdditionalClaims + Clone + PartialEq + Send + Sync + 'static,
 {
     idp: std::sync::Arc<crate::idp::IdP<APM, crate::types::AttributeSet>>,
     client_id: openidconnect::ClientId,
@@ -57,19 +73,22 @@ pub struct Account<
     account_tokens: Option<std::sync::Arc<tokio::sync::RwLock<AccountTokens>>>,
     min_validity_access_token: std::sync::Arc<chrono::Duration>,
     min_validity_access_token_target: std::sync::Arc<chrono::Duration>,
-    updater: Option<crate::updater::Updater<AccountError>>,
+    updater: Option<std::sync::Arc<crate::updater::Updater<AccountError>>>,
+    verifier: std::sync::Arc<crate::verifier::Verifier<AC, APM>>,
 
     phantom: std::marker::PhantomData<AreAccountTokenAvailable>,
 }
 
-impl<APM> Account<APM, crate::types::AttributeNotSet>
+impl<APM, AC> Account<APM, crate::types::AttributeNotSet, AC>
 where
-    APM: openidconnect::AdditionalProviderMetadata + Send + Sync + 'static,
+    APM: openidconnect::AdditionalProviderMetadata + PartialEq + Send + Sync + 'static,
+    AC: openidconnect::AdditionalClaims + Clone + PartialEq + Send + Sync + 'static,
 {
     /// Creates a new Account object for a specific public client.
     pub fn new_public(
         idp: crate::idp::IdP<APM, crate::types::AttributeSet>,
         client_id: String,
+        verifier: crate::verifier::Verifier<AC, APM>,
     ) -> Self {
         Self {
             idp: idp.into(),
@@ -83,6 +102,7 @@ where
                 .expect("Unable to construct default min validity target")
                 .into(),
             updater: None,
+            verifier: verifier.into(),
             phantom: std::marker::PhantomData,
         }
     }
@@ -92,6 +112,7 @@ where
         idp: crate::idp::IdP<APM, crate::types::AttributeSet>,
         client_id: String,
         client_secret: String,
+        verifier: crate::verifier::Verifier<AC, APM>,
     ) -> Self {
         Self {
             idp: idp.into(),
@@ -105,15 +126,17 @@ where
                 .expect("Unable to construct default min validity target")
                 .into(),
             updater: None,
+            verifier: verifier.into(),
             phantom: std::marker::PhantomData,
         }
     }
 }
 
-impl<APM, AreAccountTokenAvailable> Account<APM, AreAccountTokenAvailable>
+impl<APM, AreAccountTokenAvailable, AC> Account<APM, AreAccountTokenAvailable, AC>
 where
-    APM: openidconnect::AdditionalProviderMetadata + Send + Sync + 'static,
+    APM: openidconnect::AdditionalProviderMetadata + PartialEq + Send + Sync + 'static,
     AreAccountTokenAvailable: crate::types::AttributeState,
+    AC: openidconnect::AdditionalClaims + Clone + PartialEq + Send + Sync + 'static,
 {
     /// Returns an internal client, derived from openidconnect crate
     async fn get_client(&self) -> Result<crate::types::OidcClient, AccountError> {
@@ -137,6 +160,11 @@ where
         ))
     }
 
+    /// Helper function to support e.g. IdP caching in Leptos plugin
+    pub(crate) fn get_idp(self) -> crate::idp::IdP<APM, crate::types::AttributeSet> {
+        (*self.idp).clone()
+    }
+
     /// Processes a token response after e.g. new tokens are obtained
     async fn process_token_response(
         self,
@@ -150,13 +178,11 @@ where
             >,
             openidconnect::core::CoreTokenType,
         >,
-    ) -> Result<Account<APM, crate::types::AttributeSet>, AccountError> {
-        let fresh_account_tokens = Self::static_process_token_response(
-            token_response,
-            self.idp.clone(),
-            self.client_id.clone(),
-        )
-        .await?;
+        nonce: Option<openidconnect::Nonce>,
+    ) -> Result<Account<APM, crate::types::AttributeSet, AC>, AccountError> {
+        let fresh_account_tokens =
+            Self::static_process_token_response(token_response, self.verifier.clone(), nonce)
+                .await?;
 
         let locked_account_tokens = {
             if let Some(account_tokens_lock) = self.account_tokens {
@@ -178,6 +204,7 @@ where
             min_validity_access_token: self.min_validity_access_token,
             min_validity_access_token_target: self.min_validity_access_token_target,
             updater: self.updater,
+            verifier: self.verifier,
             phantom: std::marker::PhantomData,
         })
     }
@@ -194,23 +221,29 @@ where
             >,
             openidconnect::core::CoreTokenType,
         >,
-        idp: std::sync::Arc<crate::idp::IdP<APM, crate::types::AttributeSet>>,
-        client_id: openidconnect::ClientId,
+        verifier: std::sync::Arc<crate::verifier::Verifier<AC, APM>>,
+        nonce: Option<openidconnect::Nonce>,
     ) -> Result<AccountTokens, AccountError> {
         let id_token = token_response
             .id_token()
             .map(|id_token| id_token.to_string());
 
         let access_token = token_response.access_token().secret().to_string();
-        let access_token_verifier: crate::verifier::Verifier<
-            openidconnect::EmptyAdditionalClaims,
-            APM,
-        > = crate::verifier::Verifier::new_account_verifier(
-            idp.as_ref().clone(),
-            client_id.clone(),
-        )?;
-        let access_token_claims = access_token_verifier
-            .verify_access_token(&access_token)
+
+        // check whether tokens match
+        let mut expected_access_token_hash = None;
+        if let Some(unpacked_id_token) = &id_token {
+            let id_token_claims = verifier
+                .verify_identity_token(unpacked_id_token, nonce)
+                .await?;
+            if let Some(access_token_hash) = id_token_claims.access_token_hash() {
+                expected_access_token_hash = Some(access_token_hash.clone());
+            }
+        }
+
+        // get access token expiry and verify hash match
+        let access_token_claims = verifier
+            .verify_access_token_with_hash(&access_token, expected_access_token_hash)
             .await?;
         let access_token_expiry = access_token_claims.expiration();
 
@@ -232,39 +265,128 @@ where
     /// There are only a very few cases where this flow might make sense.
     pub async fn exchange_password(
         self,
-        username: &openidconnect::ResourceOwnerUsername,
-        password: &openidconnect::ResourceOwnerPassword,
-    ) -> Result<Account<APM, crate::types::AttributeSet>, AccountError> {
+        username: String,
+        password: String,
+    ) -> Result<Account<APM, crate::types::AttributeSet, AC>, AccountError> {
         let client = self.get_client().await?;
 
-        let tok = client.exchange_password(username, password)?;
+        let resource_owner_username = openidconnect::ResourceOwnerUsername::new(username);
+        let resource_owner_password = openidconnect::ResourceOwnerPassword::new(password);
+        let tok = client.exchange_password(&resource_owner_username, &resource_owner_password)?;
         let token_response = tok.request_async(&*self.idp.reqwest_client).await?;
 
-        self.process_token_response(token_response).await
+        self.process_token_response(token_response, None).await
     }
 
     /// Exchange refresh token for a set of account tokens.
     pub async fn exchange_refresh_token(
         self,
         refresh_token: String,
-    ) -> Result<Account<APM, crate::types::AttributeSet>, AccountError> {
+    ) -> Result<Account<APM, crate::types::AttributeSet, AC>, AccountError> {
         let client = self.get_client().await?;
 
         let current_refresh_token = openidconnect::RefreshToken::new(refresh_token);
         let tok = client.exchange_refresh_token(&current_refresh_token)?;
         let token_response = tok.request_async(&*self.idp.reqwest_client).await?;
 
-        self.process_token_response(token_response).await
+        self.process_token_response(token_response, None).await
+    }
+
+    /// Exchange code to token set. PKCE version. The caller is responsible to check the CSRF token if necessary.
+    ///
+    /// For checking the CSRF token, see also https://datatracker.ietf.org/doc/html/rfc6749#section-10.12
+    pub async fn exchange_code_pkce(
+        self,
+        code: String,
+        authorize_state: AuthorizePkceState,
+    ) -> Result<Account<APM, crate::types::AttributeSet, AC>, AccountError> {
+        let client =
+            self.get_client()
+                .await?
+                .set_redirect_uri(openidconnect::RedirectUrl::from_url(
+                    authorize_state.callback_url,
+                ));
+        let token_response = client
+            .exchange_code(openidconnect::AuthorizationCode::new(code))?
+            .set_pkce_verifier(authorize_state.pkce_verifier)
+            .request_async(&*self.idp.reqwest_client)
+            .await?;
+
+        self.process_token_response(token_response, Some(authorize_state.nonce))
+            .await
+    }
+
+    pub async fn authorize_url_pkce(
+        &self,
+        scopes: Vec<String>,
+        callback_url: url::Url,
+        redirect_url: url::Url,
+    ) -> Result<(url::Url, AuthorizePkceState), AccountError> {
+        let (pkce_challenge, pkce_verifier) = openidconnect::PkceCodeChallenge::new_random_sha256();
+
+        let client = self
+            .get_client()
+            .await?
+            .set_redirect_uri(openidconnect::RedirectUrl::from_url(callback_url.clone()));
+
+        let (auth_url, csrf_token, nonce) = client
+            .authorize_url(
+                openidconnect::core::CoreAuthenticationFlow::AuthorizationCode,
+                openidconnect::CsrfToken::new_random,
+                openidconnect::Nonce::new_random,
+            )
+            .set_pkce_challenge(pkce_challenge)
+            .add_scopes(
+                scopes
+                    .into_iter()
+                    .map(|scope| openidconnect::Scope::new(scope)),
+            )
+            .url();
+
+        Ok((
+            auth_url,
+            AuthorizePkceState {
+                pkce_verifier,
+                csrf_token,
+                nonce,
+                callback_url,
+                redirect_url,
+            },
+        ))
     }
 }
 
-impl<APM> Account<APM, crate::types::AttributeSet>
+impl<APM, AC> Account<APM, crate::types::AttributeSet, AC>
 where
-    APM: openidconnect::AdditionalProviderMetadata + Send + Sync + 'static,
+    APM: openidconnect::AdditionalProviderMetadata + PartialEq + Send + Sync + 'static,
+    AC: openidconnect::AdditionalClaims + Clone + PartialEq + Send + Sync + 'static,
 {
     /// Returns a currently valid access token. If it is not valid anymore, it returns an TokenTooOld Error.
     ///
     /// Use this function to obtain an access token for usage with another API etc.
+    ///
+    /// Do not use this function if you are driving async tasks within the same thread (you are in an async function).
+    /// Use [`get_access_token`](`Account::get_access_token`) instead.
+    pub fn get_access_token_blocking(&self) -> Result<String, AccountError> {
+        if self
+            .account_tokens
+            .as_ref()
+            .unwrap()
+            .blocking_read()
+            .access_token_expiry
+            < chrono::offset::Utc::now() + *self.min_validity_access_token
+        {
+            return Err(AccountError::TokenTooOld());
+        }
+
+        self.get_access_token_outdated_blocking()
+    }
+
+    /// Returns a currently valid access token. If it is not valid anymore, it returns an TokenTooOld Error.
+    ///
+    /// Use this function to obtain an access token for usage with another API etc.
+    ///
+    /// If you need a non-async access token, please use [`get_access_token_blocking`](`Account::get_access_token_blocking`) instead.
     pub async fn get_access_token(&self) -> Result<String, AccountError> {
         if self
             .account_tokens
@@ -279,6 +401,21 @@ where
         }
 
         self.get_access_token_outdated().await
+    }
+
+    /// Gets the access token from last refresh, even if it is outdated.
+    ///
+    /// Whenever you can, please use [`get_access_token_blocking`](`Account::get_access_token_blocking`)
+    ///
+    /// Do not use this function if you are driving async tasks within the same thread (you are in an async function).
+    pub fn get_access_token_outdated_blocking(&self) -> Result<String, AccountError> {
+        Ok(self
+            .account_tokens
+            .as_ref()
+            .unwrap()
+            .blocking_read()
+            .access_token
+            .clone())
     }
 
     /// Gets the access token from last refresh, even if it is outdated.
@@ -303,29 +440,33 @@ where
             client_id: self.client_id.clone(),
             client_secret: self.client_secret.clone(),
             min_validity_access_token_target: self.min_validity_access_token_target.clone(),
+            verifier: self.verifier.clone(),
         };
 
-        self.updater = Some(crate::updater::Updater::new(updater_impl));
+        self.updater = Some(crate::updater::Updater::new(updater_impl).into());
 
         self
     }
 }
 
 #[derive(Debug, Clone)]
-struct UpdaterImpl<APM>
+struct UpdaterImpl<APM, AC>
 where
-    APM: openidconnect::AdditionalProviderMetadata,
+    APM: openidconnect::AdditionalProviderMetadata + PartialEq,
+    AC: openidconnect::AdditionalClaims + Clone + PartialEq + Send + Sync + 'static,
 {
     idp: std::sync::Arc<crate::idp::IdP<APM, crate::types::AttributeSet>>,
     account_tokens: std::sync::Arc<tokio::sync::RwLock<AccountTokens>>,
     client_id: openidconnect::ClientId,
     client_secret: Option<openidconnect::ClientSecret>,
     min_validity_access_token_target: std::sync::Arc<chrono::TimeDelta>,
+    verifier: std::sync::Arc<crate::verifier::Verifier<AC, APM>>,
 }
 
-impl<APM> crate::updater::UpdaterImpl<AccountError> for UpdaterImpl<APM>
+impl<APM, AC> crate::updater::UpdaterImpl<AccountError> for UpdaterImpl<APM, AC>
 where
-    APM: openidconnect::AdditionalProviderMetadata + Send + std::marker::Sync + 'static,
+    APM: openidconnect::AdditionalProviderMetadata + PartialEq + Send + std::marker::Sync + 'static,
+    AC: openidconnect::AdditionalClaims + Clone + PartialEq + Send + std::marker::Sync + 'static,
 {
     async fn get_next_update_time(
         &self,
@@ -371,10 +512,10 @@ where
         log::trace!("Updated account tokens!");
 
         *account_tokens =
-            Account::<APM, crate::types::AttributeSet>::static_process_token_response(
+            Account::<APM, crate::types::AttributeSet, AC>::static_process_token_response(
                 token_response,
-                self.idp.clone(),
-                self.client_id.clone(),
+                self.verifier.clone(),
+                None,
             )
             .await?;
 
