@@ -21,6 +21,7 @@ crate-type = ["cdylib", "rlib"]
 wasm = ["dep:web-sys"]
 integrations = []
 leptos = ["integrations", "wasm", "dep:leptos", "dep:leptos_router"]
+js = ["integrations", "wasm"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -61,3 +62,9 @@ opt-level = 'z'
 lto = true
 codegen-units = 1
 panic = "abort"
+
+
+[profile.release]
+lto = true
+panic = "abort"
+opt-level = 'z'

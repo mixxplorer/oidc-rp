@@ -54,8 +54,8 @@ pub struct Verifier<
     client_id: openidconnect::ClientId,
     access_token_allowed_signing_algs: Option<Vec<openidconnect::core::CoreJwsSigningAlgorithm>>,
     id_token_allowed_signing_algs: Option<Vec<openidconnect::core::CoreJwsSigningAlgorithm>>,
-    access_token_allowed_jose_types: Option<Vec<openidconnect::JsonWebTokenType>>,
-    id_token_allowed_jose_types: Option<Vec<openidconnect::JsonWebTokenType>>,
+    access_token_allowed_jose_types: Option<Vec<openidconnect::NormalizedJsonWebTokenType>>,
+    id_token_allowed_jose_types: Option<Vec<openidconnect::NormalizedJsonWebTokenType>>,
     other_audience_verifier_fn: fn(&openidconnect::Audience) -> bool,
     verify_own_audience: bool,
 
@@ -98,8 +98,9 @@ where
             openidconnect::core::CoreJwsSigningAlgorithm::EdDsa,
         ]);
         let access_token_allowed_jose_types = Some(vec![
-            openidconnect::JsonWebTokenType::new("at+jwt".to_string()),
-            openidconnect::JsonWebTokenType::new("application/at+jwt".to_string()),
+            openidconnect::JsonWebTokenType::new("at+jwt".to_string())
+                .normalize()
+                .expect("at+jwt should be a valid JWT type"),
         ]);
         Ok(Self {
             idp,
@@ -140,7 +141,7 @@ where
 
     pub fn set_access_token_allowed_jose_types(
         mut self,
-        types: Vec<openidconnect::JsonWebTokenType>,
+        types: Vec<openidconnect::NormalizedJsonWebTokenType>,
     ) -> Self {
         self.access_token_allowed_jose_types = Some(types);
         self

@@ -64,18 +64,6 @@ impl From<crate::idp::IdPError> for WasmError {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
-#[wasm_bindgen::prelude::wasm_bindgen]
-pub async fn test(name: String) -> String {
-    format!("Hi, {name}!")
-}
-
-// #[cfg(target_arch = "wasm32")]
-// #[wasm_bindgen::prelude::wasm_bindgen]
-// pub async fn get_idp(base_url: String) -> crate::idp::IdP {
-//     crate::idp::IdP::new(url::Url::new(base_url)).await.unwrap()
-// }
-
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 struct LocalStorageAuthorizePkceStateStore {
     authorizations: std::collections::HashMap<String, LocalStorageAuthorizePkceStateStoreItem>,
