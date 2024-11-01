@@ -1,0 +1,14 @@
+
+# Docker compose that emulates the gitlab test pipeline for local deployment
+services:
+  examples:
+    build:
+      context: .
+      dockerfile: ./docker/examples/Dockerfile
+    restart: no
+    volumes:
+      - './docker/examples/test-account.sh:/oidc-rp/test.sh:ro'
+    command: "/oidc-rp/test.sh"
+  idp:
+    build:
+      context: docker/idp

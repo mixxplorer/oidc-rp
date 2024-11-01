@@ -1,0 +1,90 @@
+default:
+  image: ${CI_DEPENDENCY_PROXY_DIRECT_GROUP_IMAGE_PREFIX}/rust:latest
+  cache:
+    key: target-${CI_COMMIT_REF_SLUG}
+    paths:
+      - target/
+      - /usr/local/cargo
+
+variables:
+  RUSTFLAGS: "-Dwarnings"
+  IDP_IMAGE_TAG: $CI_REGISTRY_IMAGE/$CI_COMMIT_REF_SLUG:$CI_PIPELINE_IID
+
+stages:
+  - dependencies
+  - lint
+  - build-idp
+  - test
+
+dependencies:
+  stage: dependencies
+  script:
+    - cargo --locked build --all-features
+  allow_failure: true
+  needs: [ ]
+
+clippy_check:
+  stage: lint
+  script:
+    - rustup component add clippy
+    - cargo --locked clippy --all-targets --all-features
+  allow_failure: true
+  needs: [ "dependencies" ]
+
+fmt_check:
+  stage: lint
+  script:
+    - rustup component add rustfmt
+    - cargo --locked fmt --all -- --check
+  allow_failure: true
+  needs: [ "dependencies" ]
+
+unittest:
+  stage: test
+  script:
+    - cargo --locked test --all-features
+  allow_failure: true
+  needs: [ "dependencies" ]
+
+doctest:
+  stage: test
+  script:
+    - cargo --locked test --doc
+    - cargo --locked test --doc --no-default-features
+    - cargo --locked test --doc --all-features
+  allow_failure: true
+  needs: [ "dependencies" ]
+
+build-idp:
+  stage: build-idp
+  image:
+    name: gcr.io/kaniko-project/executor:v1.23.2-debug
+    entrypoint: [""]
+  script:
+    - /kaniko/executor
+      -v warn
+      --context "${CI_PROJECT_DIR}/docker/idp"
+      --dockerfile "${CI_PROJECT_DIR}/docker/idp/Dockerfile"
+      --destination "${IDP_IMAGE_TAG}"
+    - echo "Pushed to ${IDP_IMAGE_TAG}"
+  allow_failure: true
+  needs: [ ]
+
+examples:account:
+  stage: test
+  services:
+    - name: ${IDP_IMAGE_TAG}
+      alias: idp
+  variables:
+    # Do not fail on warnings, we test the functionality.
+    RUSTFLAGS: ""
+  script:
+    - |
+      (
+        cd examples/account
+        cargo build --profile dev
+      )
+    - cp target/debug/account /oidc-rp/account
+    - docker/examples/test-account.sh
+  allow_failure: true
+  needs: [ "build-idp" , "dependencies" ]
