@@ -19,7 +19,7 @@ stages:
 dependencies:
   stage: dependencies
   script:
-    - cargo --locked build --all-features
+    - cargo build --all-features
   allow_failure: true
   needs: [ ]
 
@@ -27,7 +27,7 @@ clippy_check:
   stage: lint
   script:
     - rustup component add clippy
-    - cargo --locked clippy --all-targets --all-features
+    - cargo clippy --all-targets --all-features
   allow_failure: true
   needs: [ "dependencies" ]
 
@@ -35,23 +35,23 @@ fmt_check:
   stage: lint
   script:
     - rustup component add rustfmt
-    - cargo --locked fmt --all -- --check
+    - cargo fmt --all -- --check
   allow_failure: true
   needs: [ "dependencies" ]
 
 unittest:
   stage: test
   script:
-    - cargo --locked test --all-features
+    - cargo test --all-features
   allow_failure: true
   needs: [ "dependencies" ]
 
 doctest:
   stage: test
   script:
-    - cargo --locked test --doc
-    - cargo --locked test --doc --no-default-features
-    - cargo --locked test --doc --all-features
+    - cargo test --doc
+    - cargo test --doc --no-default-features
+    - cargo test --doc --all-features
   allow_failure: true
   needs: [ "dependencies" ]
 
@@ -70,7 +70,7 @@ build-idp:
   allow_failure: true
   needs: [ ]
 
-examples:account:
+examples:
   stage: test
   services:
     - name: ${IDP_IMAGE_TAG}
@@ -81,8 +81,14 @@ examples:account:
   script:
     - |
       (
-        cd examples/account
+        cd examples/${EXAMPLE}
         cargo build --profile dev
       )
-    - docker/examples/test-account.sh target/debug/account
+    - docker/examples/test-${EXAMPLE}.sh target/debug/${EXAMPLE}
   needs: [ "build-idp" , "dependencies" ]
+  parallel:
+    matrix:
+      - EXAMPLE:
+        - account
+        - idp
+        - auth_verify

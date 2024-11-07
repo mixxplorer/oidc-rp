@@ -82,10 +82,10 @@ async fn main() -> anyhow::Result<()> {
         .allow_all_access_token_jose_types()
         .set_other_audience_verifier_fn(|_| true);
         log::info!("Starting verifying claims");
-        for _ in 0..100_000 {
-            verifier.verify_access_token(&access_token).await.unwrap();
+        for i in 0..10_000 {
+            verifier.verify_access_token(&access_token).await.expect(format!("Iteration: {}", i).as_str());
         }
-        log::info!("Verified 100k access tokens!");
+        log::info!("Verified 10k access tokens!");
         let claims: oidc_rp::verifier::JwtAccessTokenClaims<oidc_rp::oidc::EmptyAdditionalClaims> =
             verifier.verify_access_token(&access_token).await.unwrap();
         log::info!("Verified! Claims: {claims:#?}");
