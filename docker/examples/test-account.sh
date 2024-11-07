@@ -15,6 +15,8 @@ CLIENT_ID=oidc-rp
 TEST_RUNTIME=122
 TOKEN_COUNT_EXPECTED=2
 
+EXEC=${1:-"/oidc-rp/account"}
+
 echo "wait until IDP is ready"
 curl -s -o /dev/null --insecure \
     --retry 30 --retry-delay 1 --retry-max-time 30 --retry-connrefused  \
@@ -27,7 +29,7 @@ curl -s -w %{certs}  -o /dev/null --insecure "$IDP_READY" | \
 
 echo "Start refreshing access tokens"
 timeout --kill-after=10s --preserve-status "${TEST_RUNTIME}s" \
-    /oidc-rp/account \
+    "$EXEC" \
     -vvvv \
     --idp-url "$IDP_URL" --client-id "$CLIENT_ID" \
     --username "$USERNAME" --password "$PASSWORD" 2>&1\

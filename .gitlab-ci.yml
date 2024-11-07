@@ -84,7 +84,5 @@ examples:account:
         cd examples/account
         cargo build --profile dev
       )
-    - cp target/debug/account /oidc-rp/account
-    - docker/examples/test-account.sh
-  allow_failure: true
+    - docker/examples/test-account.sh target/debug/account
   needs: [ "build-idp" , "dependencies" ]
