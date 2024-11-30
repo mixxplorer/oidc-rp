@@ -50,6 +50,7 @@ where
     id_token_claims: Option<openidconnect::IdTokenClaims<IC, openidconnect::core::CoreGenderClaim>>,
 }
 
+/// Must be saved when losing all state
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct AuthorizePkceState {
     pub pkce_verifier: openidconnect::PkceCodeVerifier,
@@ -79,7 +80,24 @@ pub struct Account<
     client_id: openidconnect::ClientId,
     client_secret: Option<openidconnect::ClientSecret>,
     account_tokens: Option<std::sync::Arc<tokio::sync::RwLock<AccountTokens<IC>>>>,
+
+    /// Minimum time an access token should still be valid for
+    /// when returned from get_access_token and get_access_token_blocking
+    ///
+    /// This is to ensure to receive a TokenError when not enough time
+    /// would be left to use the token.
+    ///
+    /// Default: 5 seconds.
     min_validity_access_token: std::sync::Arc<chrono::Duration>,
+
+    /// Minimum time an access token should still be valid for
+    /// when initiating a refresh.
+    ///
+    /// This should be larger than min_validity_access_token to ensure there
+    /// is always a valid access token available, even if the request to refresh
+    /// the token takes a little time.
+    ///
+    /// Default: 30 seconds.
     min_validity_access_token_target: std::sync::Arc<chrono::Duration>,
     min_validity_id_token: std::sync::Arc<chrono::Duration>,
     updater: Option<std::sync::Arc<crate::updater::Updater<AccountError>>>,
@@ -95,6 +113,8 @@ where
     APM: openidconnect::AdditionalProviderMetadata + PartialEq + Send + Sync + 'static,
 {
     /// Creates a new Account object for a specific public client.
+    ///
+    /// See https://www.rfc-editor.org/rfc/rfc6749#section-2.1 for more details.
     pub fn new_public(
         idp: crate::idp::IdP<APM, crate::types::AttributeSet>,
         client_id: String,
@@ -120,7 +140,9 @@ where
         }
     }
 
-    /// Creates a new Account object for a specific public client.
+    /// Creates a new Account object for a specific confidential client.
+    ///
+    /// See https://www.rfc-editor.org/rfc/rfc6749#section-2.1 for more details.
     pub fn new_secret(
         idp: crate::idp::IdP<APM, crate::types::AttributeSet>,
         client_id: String,
@@ -183,6 +205,8 @@ where
     }
 
     /// Processes a token response after e.g. new tokens are obtained
+    ///
+    /// Returns a new Account with the same data as self, except the account tokens are set form the response
     async fn process_token_response(
         self,
         token_response: openidconnect::StandardTokenResponse<
@@ -249,6 +273,7 @@ where
         let access_token = token_response.access_token().secret().to_string();
 
         // check whether tokens match
+        // https://openid.net/specs/openid-connect-core-1_0.html#rfc.section.3.1.3.6
         let mut expected_access_token_hash = None;
         let id_token_claims = {
             if let Some(unpacked_id_token) = &id_token {
@@ -283,11 +308,13 @@ where
     /// Exchange username/password combination for a set of account tokens.
     ///
     /// This uses the direct grant flow, which is deprecated in the OpenID standard.
-    /// If possible, please use another standard, especially if you are running a web app etc.
+    /// If possible, please use another flow, especially if you are running a web app etc.
     ///
     /// There are only a very few cases where this flow might make sense.
     ///
     /// Therefore, it is deprecated in the standard.
+    /// 
+    /// Returns a new Account.
     pub async fn exchange_password(
         self,
         username: String,
@@ -307,6 +334,8 @@ where
     }
 
     /// Exchange refresh token for a set of account tokens.
+    ///
+    /// Returns a new Account.
     pub async fn exchange_refresh_token(
         self,
         refresh_token: String,
@@ -323,7 +352,13 @@ where
     /// Exchange code to token set. PKCE version. The caller is responsible to check the CSRF token if necessary.
     ///
     /// For checking the CSRF token, see also https://datatracker.ietf.org/doc/html/rfc6749#section-10.12
-    pub async fn exchange_code_pkce(
+    ///
+    /// Returns a new Account.
+    ///
+    /// authorize_url_pkce -> save state, redirect to browser -> catch callback URL
+    /// -> scrape code from own URL schema -> call exchange_code_pkce -> call start_refresh -> use tokens
+    /// TODO: Make configurable.
+    pub async fn exchange_code_pkce( // TODO: Never used in examples
         self,
         code: String,
         authorize_state: AuthorizePkceState,
@@ -344,6 +379,8 @@ where
             .await
     }
 
+    /// Use this to generate a URL to redirect the user agent for authentication,
+    /// as well as the state needed to verify a response then they come back
     pub async fn authorize_url_pkce(
         &self,
         scopes: Vec<String>,

@@ -87,6 +87,7 @@ async fn main() -> anyhow::Result<()> {
         .allow_all_access_token_jose_types()
         .set_other_audience_verifier_fn(|_| true);
         log::info!("Starting verifying claims");
+        // 100_000 is arbitrary such that all verifications should terminate on reasonable hardware before the token expires.
         for _ in 0..100_000 {
             verifier.verify_access_token(&access_token).await.unwrap();
         }
