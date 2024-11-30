@@ -1,6 +1,10 @@
 use anyhow::Context;
 use clap::Parser;
 
+/// Example of a CLI application that autheticates to an IDP using the deprecated implicit flow.
+/// It then proceeds to resfresh the access token as required and prints the tokens.
+/// Due to openidconnect-rs, the audience must match the client_id.
+
 #[derive(clap::Parser, Debug)]
 #[command(author, version, long_about = "Account example")]
 pub struct CliArguments {

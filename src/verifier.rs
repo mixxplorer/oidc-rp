@@ -159,6 +159,7 @@ where
         self
     }
 
+    /// For RP: Verifies access token on every request. Main function you need to implement RP.
     pub async fn verify_access_token(
         &self,
         jwt: &str,
@@ -168,6 +169,7 @@ where
 
     /// Helper function to verify an access token with hash as required during token fetching.
     /// As token fetching is done solely internally, we do not expose this function.
+    /// https://openid.net/specs/openid-connect-core-1_0.html#rfc.section.3.1.3.6
     pub(crate) async fn verify_access_token_with_hash(
         &self,
         jwt_str: &str,

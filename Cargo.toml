@@ -42,7 +42,7 @@ futures = "0.3.30"
 
 leptos = { version = "0.6", optional = true }
 leptos_router = { version = "0.6", optional = true }
-web-sys = { version = "0.3.69", features = ["Location", "Storage"], optional = true }
+web-sys = { version = "0.3.69", features = ["Window", "Location", "Storage"], optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-futures = "0.4.42"
