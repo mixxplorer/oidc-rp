@@ -5,7 +5,7 @@ use clap::Parser;
 #[command(
     author,
     version,
-    long_about = "Brownie shutdown hook implementation. To be called during shutdown."
+    long_about = "Automatic JWKS reload example"
 )]
 pub struct CliArguments {
     #[clap(flatten)]

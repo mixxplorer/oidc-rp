@@ -1,7 +1,6 @@
-workspace = { members = ["examples/account", "examples/auth_verify", "examples/idp", "examples/leptos-axum-oidc"] }
 [package]
 name = "oidc-rp"
-description = "Implements OIDC Relying Party methods"
+description = "Implements OIDC Relying Party wrapper"
 version = "0.0.1"
 edition = "2024"
 authors = ["Leonard Marschke <leo@mixxplorer.de>"]
@@ -42,6 +41,13 @@ leptos = { version = "0.6", optional = true }
 leptos_router = { version = "0.6", optional = true }
 web-sys = { version = "0.3.69", features = ["Location", "Storage"], optional = true }
 
+[dev-dependencies]
+anyhow = "~1.0.82"
+clap = { version = "~4.2.7", features = ["derive"] }
+clap-verbosity-flag = "~2.0.1"
+log = "~0.4.21"
+simple_logger = { version = "~4.3.3", features = ["colors", "timestamps", "stderr"] }
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-futures = "0.4.42"
 web-sys = "0.3.69"
@@ -62,8 +68,22 @@ lto = true
 codegen-units = 1
 panic = "abort"
 
-
 [profile.release]
 lto = true
 panic = "abort"
 opt-level = 'z'
+
+[[example]]
+name = "account"
+path = "examples/account/main.rs"
+crate-type = ["bin"]
+
+[[example]]
+name = "auth_verify"
+path = "examples/auth_verify/main.rs"
+crate-type = ["bin"]
+
+[[example]]
+name = "jwks"
+path = "examples/jwks/main.rs"
+crate-type = ["bin"]
