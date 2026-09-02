@@ -52,7 +52,7 @@ async fn main() -> anyhow::Result<()> {
     )?
     .allow_all_access_token_jose_types()
     .set_other_audience_verifier_fn(|_| true);
-    let account: oidc_rp::account::Account<oidc_rp::oidc::EmptyAdditionalProviderMetadata, _> =
+    let account: oidc_rp::account::Account<_, _, oidc_rp::oidc::EmptyAdditionalProviderMetadata> =
         oidc_rp::account::Account::new_public(idp, args.client_id.clone(), verifier);
 
     let account = account

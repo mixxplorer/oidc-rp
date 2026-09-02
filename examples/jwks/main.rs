@@ -2,11 +2,7 @@ use anyhow::Context;
 use clap::Parser;
 
 #[derive(clap::Parser, Debug)]
-#[command(
-    author,
-    version,
-    long_about = "Automatic JWKS reload example"
-)]
+#[command(author, version, long_about = "Automatic JWKS reload example")]
 pub struct CliArguments {
     #[clap(flatten)]
     log_level: clap_verbosity_flag::Verbosity,

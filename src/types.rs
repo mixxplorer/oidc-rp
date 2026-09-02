@@ -27,15 +27,24 @@ pub struct GenericIdTokenFields {
     id_token: Option<String>,
 }
 
-pub(crate) type OidcClient = openidconnect::Client<
-    openidconnect::EmptyAdditionalClaims,                   // AC
+pub(crate) type OidcClient<IC> = openidconnect::Client<
+    IC,                                                     // AC (= Identity Claims)
     openidconnect::core::CoreAuthDisplay,                   // AD
     openidconnect::core::CoreGenderClaim,                   // GC
     openidconnect::core::CoreJweContentEncryptionAlgorithm, // JE
     openidconnect::core::CoreJsonWebKey,                    // K
     openidconnect::core::CoreAuthPrompt,                    // P
     openidconnect::StandardErrorResponse<openidconnect::core::CoreErrorResponseType>, // TE
-    openidconnect::core::CoreTokenResponse,                 // TR
+    openidconnect::StandardTokenResponse<
+        openidconnect::IdTokenFields<
+            IC,
+            openidconnect::EmptyExtraTokenFields,
+            openidconnect::core::CoreGenderClaim,
+            openidconnect::core::CoreJweContentEncryptionAlgorithm,
+            openidconnect::core::CoreJwsSigningAlgorithm,
+        >,
+        openidconnect::core::CoreTokenType,
+    >, // TR
     openidconnect::core::CoreTokenIntrospectionResponse,    // TIR
     openidconnect::core::CoreRevocableToken,                // RT
     openidconnect::core::CoreRevocationErrorResponse,       // TRE

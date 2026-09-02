@@ -43,9 +43,18 @@ pub(crate) type IdToken<AC> = openidconnect::IdToken<
     openidconnect::core::CoreJwsSigningAlgorithm,
 >;
 
+/// Setting which json web tokens types should be allowed to verify, see `JwtClaimsVerifier::new` in openidconnect for defaults.
+#[derive(Debug)]
+pub enum AllowedJsonWebTokenTypeMode {
+    All,
+    Some(Vec<openidconnect::NormalizedJsonWebTokenType>),
+    Default,
+}
+
 #[derive(Debug)]
 pub struct Verifier<
     AC = openidconnect::EmptyAdditionalClaims,
+    IC = openidconnect::EmptyAdditionalClaims,
     APM = crate::idp::EmptyAdditionalIdPMetadata,
 > where
     APM: openidconnect::AdditionalProviderMetadata + PartialEq,
@@ -54,20 +63,26 @@ pub struct Verifier<
     client_id: openidconnect::ClientId,
     access_token_allowed_signing_algs: Option<Vec<openidconnect::core::CoreJwsSigningAlgorithm>>,
     id_token_allowed_signing_algs: Option<Vec<openidconnect::core::CoreJwsSigningAlgorithm>>,
-    access_token_allowed_jose_types: Option<Vec<openidconnect::NormalizedJsonWebTokenType>>,
-    id_token_allowed_jose_types: Option<Vec<openidconnect::NormalizedJsonWebTokenType>>,
+    access_token_allowed_jose_types: AllowedJsonWebTokenTypeMode,
+    id_token_allowed_jose_types: AllowedJsonWebTokenTypeMode,
     other_audience_verifier_fn: fn(&openidconnect::Audience) -> bool,
     verify_own_audience: bool,
 
     // see https://doc.rust-lang.org/std/marker/struct.PhantomData.html
-    phantom_additional_claims: std::marker::PhantomData<AC>,
+    phantom_additional_claims_ac: std::marker::PhantomData<AC>,
+    phantom_additional_claims_ic: std::marker::PhantomData<IC>,
 }
 
-impl<AC, APM> Verifier<AC, APM>
+impl<AC, IC, APM> Verifier<AC, IC, APM>
 where
     AC: openidconnect::AdditionalClaims,
+    IC: openidconnect::AdditionalClaims,
     APM: openidconnect::AdditionalProviderMetadata + PartialEq + Send + Sync + 'static,
 {
+    /// Create a new verifier by using default settings.
+    ///
+    /// Beware: These settings might break between point releases. We might remove old and insecure algorithms from the default set.
+    /// If you need more control, use [`new_with_algs`](`Verifier::new_with_algs`).
     pub fn new(
         idp: crate::idp::IdP<APM, crate::types::AttributeSet>,
         client_id: String,
@@ -78,7 +93,7 @@ where
         }
 
         // this is quite permissive, check again
-        let access_token_allowed_signing_algs = Some(vec![
+        let access_token_allowed_signing_algs = vec![
             openidconnect::core::CoreJwsSigningAlgorithm::RsaSsaPkcs1V15Sha256,
             openidconnect::core::CoreJwsSigningAlgorithm::RsaSsaPkcs1V15Sha384,
             openidconnect::core::CoreJwsSigningAlgorithm::RsaSsaPkcs1V15Sha512,
@@ -86,8 +101,8 @@ where
             openidconnect::core::CoreJwsSigningAlgorithm::EcdsaP384Sha384,
             openidconnect::core::CoreJwsSigningAlgorithm::EcdsaP521Sha512,
             openidconnect::core::CoreJwsSigningAlgorithm::EdDsa,
-        ]);
-        let id_token_allowed_signing_algs = Some(vec![
+        ];
+        let id_token_allowed_signing_algs = vec![
             openidconnect::core::CoreJwsSigningAlgorithm::RsaSsaPkcs1V15Sha256,
             openidconnect::core::CoreJwsSigningAlgorithm::RsaSsaPkcs1V15Sha384,
             openidconnect::core::CoreJwsSigningAlgorithm::RsaSsaPkcs1V15Sha512,
@@ -95,22 +110,41 @@ where
             openidconnect::core::CoreJwsSigningAlgorithm::EcdsaP384Sha384,
             openidconnect::core::CoreJwsSigningAlgorithm::EcdsaP521Sha512,
             openidconnect::core::CoreJwsSigningAlgorithm::EdDsa,
-        ]);
-        let access_token_allowed_jose_types = Some(vec![
-            openidconnect::JsonWebTokenType::new("at+jwt".to_string())
-                .normalize()
-                .expect("at+jwt should be a valid JWT type"),
-        ]);
+        ];
+
+        Self::new_with_algs(
+            idp,
+            client_id,
+            access_token_allowed_signing_algs,
+            id_token_allowed_signing_algs,
+        )
+    }
+
+    /// Create a new verifier.
+    ///
+    /// Pass permitted algorithms for token signing as parameters. If you want to use default one, check out [`new`](`Verifier::new`).
+    pub fn new_with_algs(
+        idp: crate::idp::IdP<APM, crate::types::AttributeSet>,
+        client_id: String,
+        access_token_allowed_signing_algs: Vec<openidconnect::core::CoreJwsSigningAlgorithm>,
+        id_token_allowed_signing_algs: Vec<openidconnect::core::CoreJwsSigningAlgorithm>,
+    ) -> Result<Self, VerifierError> {
+        // check whether idp is refreshing its metadata on a regular basis
+        if !idp.has_jwks_refresh_strategy() {
+            return Err(VerifierError::NoIdPDataRefreshStrategy());
+        }
+
         Ok(Self {
             idp,
             client_id: openidconnect::ClientId::new(client_id),
-            access_token_allowed_signing_algs,
-            id_token_allowed_signing_algs,
-            access_token_allowed_jose_types,
-            id_token_allowed_jose_types: None,
+            access_token_allowed_signing_algs: Some(access_token_allowed_signing_algs),
+            id_token_allowed_signing_algs: Some(id_token_allowed_signing_algs),
+            access_token_allowed_jose_types: AllowedJsonWebTokenTypeMode::Default,
+            id_token_allowed_jose_types: AllowedJsonWebTokenTypeMode::Default,
             other_audience_verifier_fn: |_| false,
             verify_own_audience: true,
-            phantom_additional_claims: std::marker::PhantomData,
+            phantom_additional_claims_ac: std::marker::PhantomData,
+            phantom_additional_claims_ic: std::marker::PhantomData,
         })
     }
 
@@ -126,11 +160,11 @@ where
         mut self,
         types: Vec<openidconnect::NormalizedJsonWebTokenType>,
     ) -> Self {
-        self.access_token_allowed_jose_types = Some(types);
+        self.access_token_allowed_jose_types = AllowedJsonWebTokenTypeMode::Some(types);
         self
     }
     pub fn allow_all_access_token_jose_types(mut self) -> Self {
-        self.access_token_allowed_jose_types = None;
+        self.access_token_allowed_jose_types = AllowedJsonWebTokenTypeMode::All;
         self
     }
 
@@ -156,7 +190,7 @@ where
         jwt_str: &str,
         expected_access_token_hash: Option<openidconnect::AccessTokenHash>,
     ) -> Result<JwtAccessTokenClaims<AC>, VerifierError> {
-        let client = crate::types::OidcClient::from_provider_metadata(
+        let client = crate::types::OidcClient::<IC>::from_provider_metadata(
             self.idp.discovery_attributes().await?,
             self.client_id.clone(),
             None,
@@ -177,9 +211,12 @@ where
             verifier = verifier.set_allowed_algs(allowed_algs);
         }
 
-        if let Some(types) = &self.access_token_allowed_jose_types {
+        if let AllowedJsonWebTokenTypeMode::Some(types) = &self.access_token_allowed_jose_types {
             verifier = verifier.set_allowed_jose_types(types.clone());
-        } else {
+        } else if matches!(
+            self.access_token_allowed_jose_types,
+            AllowedJsonWebTokenTypeMode::All
+        ) {
             verifier = verifier.allow_all_jose_types();
         }
 
@@ -205,7 +242,7 @@ where
         jwt: &str,
         nonce: Option<openidconnect::Nonce>,
     ) -> Result<IdTokenClaims<AC>, VerifierError> {
-        let client = crate::types::OidcClient::from_provider_metadata(
+        let client = crate::types::OidcClient::<IC>::from_provider_metadata(
             self.idp.discovery_attributes().await?,
             self.client_id.clone(),
             None,
@@ -226,9 +263,12 @@ where
             verifier = verifier.set_allowed_algs(allowed_algs);
         }
 
-        if let Some(types) = &self.id_token_allowed_jose_types {
+        if let AllowedJsonWebTokenTypeMode::Some(types) = &self.id_token_allowed_jose_types {
             verifier = verifier.set_allowed_jose_types(types.clone());
-        } else {
+        } else if matches!(
+            self.id_token_allowed_jose_types,
+            AllowedJsonWebTokenTypeMode::All
+        ) {
             verifier = verifier.allow_all_jose_types();
         }
 
