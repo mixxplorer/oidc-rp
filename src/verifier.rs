@@ -68,7 +68,6 @@ where
     AC: openidconnect::AdditionalClaims,
     APM: openidconnect::AdditionalProviderMetadata + PartialEq + Send + Sync + 'static,
 {
-    /// oidc_rp::oidc::EmptyAdditionalClaims
     pub fn new(
         idp: crate::idp::IdP<APM, crate::types::AttributeSet>,
         client_id: String,
@@ -114,22 +113,6 @@ where
             phantom_additional_claims: std::marker::PhantomData,
         })
     }
-
-    /// Verifier to just extract the expiry time of access tokens
-    // pub(crate) fn new_account_verifier(
-    //     idp: crate::idp::IdP<APM, crate::types::AttributeSet>,
-    //     client_id: openidconnect::ClientId,
-    // ) -> Result<Self, VerifierError> {
-    //     Ok(Self {
-    //         idp,
-    //         client_id,
-    //         access_token_allowed_signing_algs: None,
-    //         access_token_allowed_jose_types: None,
-    //         other_audience_verifier_fn: |_| true,
-    //         verify_own_audience: false,
-    //         phantom_additional_claims: std::marker::PhantomData,
-    //     })
-    // }
 
     pub fn set_access_token_allowed_singing_algs(
         mut self,
