@@ -410,7 +410,7 @@ impl IdPRefreshStrategy for DefaultIdPDataRefreshStrategy {
 #[derive(Debug, Clone)]
 pub struct NoIdPDataRefreshStrategy {}
 impl NoIdPDataRefreshStrategy {
-    const INVALIDATE_AFTER: std::time::Duration = std::time::Duration::from_secs(10 * 6);
+    const INVALIDATE_AFTER: std::time::Duration = std::time::Duration::from_secs(10 * 60);
 }
 
 impl IdPRefreshStrategy for NoIdPDataRefreshStrategy {
