@@ -63,6 +63,6 @@ async fn main() -> anyhow::Result<()> {
     loop {
         log::info!("Access token: {:?}", account.get_access_token().await?);
 
-        std::thread::sleep(std::time::Duration::new(120, 0));
+        std::thread::sleep(std::time::Duration::new(90, 0));
     }
 }
