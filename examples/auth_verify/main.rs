@@ -61,7 +61,7 @@ async fn main() -> anyhow::Result<()> {
         > = oidc_rp::account::Account::new_public(idp, args.client_id.clone(), verifier);
 
         let account = account
-            .exchange_password(args.username, args.password)
+            .exchange_password(args.username, args.password, vec![])
             .await?;
 
         log::info!("Access token: {:?}", account.get_access_token().await?);

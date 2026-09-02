@@ -47,14 +47,7 @@ where
     access_token: String,
     /// Store access token expiry date to not parse access token every time.
     access_token_expiry: chrono::DateTime<chrono::Utc>,
-    id_token: Option<
-        openidconnect::IdToken<
-            IC,
-            openidconnect::core::CoreGenderClaim,
-            openidconnect::core::CoreJweContentEncryptionAlgorithm,
-            openidconnect::core::CoreJwsSigningAlgorithm,
-        >,
-    >,
+    id_token_claims: Option<openidconnect::IdTokenClaims<IC, openidconnect::core::CoreGenderClaim>>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -88,6 +81,7 @@ pub struct Account<
     account_tokens: Option<std::sync::Arc<tokio::sync::RwLock<AccountTokens<IC>>>>,
     min_validity_access_token: std::sync::Arc<chrono::Duration>,
     min_validity_access_token_target: std::sync::Arc<chrono::Duration>,
+    min_validity_id_token: std::sync::Arc<chrono::Duration>,
     updater: Option<std::sync::Arc<crate::updater::Updater<AccountError>>>,
     verifier: std::sync::Arc<crate::verifier::Verifier<AC, IC, APM>>,
 
@@ -117,6 +111,9 @@ where
             min_validity_access_token_target: chrono::Duration::new(30, 0)
                 .expect("Unable to construct default min validity target")
                 .into(),
+            min_validity_id_token: chrono::Duration::new(5, 0)
+                .expect("Unable to construct default min validity")
+                .into(),
             updater: None,
             verifier: verifier.into(),
             state: std::marker::PhantomData,
@@ -140,6 +137,9 @@ where
                 .into(),
             min_validity_access_token_target: chrono::Duration::new(30, 0)
                 .expect("Unable to construct default min validity target")
+                .into(),
+            min_validity_id_token: chrono::Duration::new(5, 0)
+                .expect("Unable to construct default min validity")
                 .into(),
             updater: None,
             verifier: verifier.into(),
@@ -220,6 +220,7 @@ where
             account_tokens: Some(locked_account_tokens),
             min_validity_access_token: self.min_validity_access_token,
             min_validity_access_token_target: self.min_validity_access_token_target,
+            min_validity_id_token: self.min_validity_id_token,
             updater: self.updater,
             verifier: self.verifier,
             state: std::marker::PhantomData,
@@ -249,14 +250,19 @@ where
 
         // check whether tokens match
         let mut expected_access_token_hash = None;
-        if let Some(unpacked_id_token) = &id_token {
-            let id_token_claims = verifier
-                .verify_identity_token(&unpacked_id_token.to_string(), nonce)
-                .await?;
-            if let Some(access_token_hash) = id_token_claims.access_token_hash() {
-                expected_access_token_hash = Some(access_token_hash.clone());
+        let id_token_claims = {
+            if let Some(unpacked_id_token) = &id_token {
+                let id_token_claims = verifier
+                    .verify_identity_token(&unpacked_id_token.to_string(), nonce)
+                    .await?;
+                if let Some(access_token_hash) = id_token_claims.access_token_hash() {
+                    expected_access_token_hash = Some(access_token_hash.clone());
+                }
+                Some(id_token_claims)
+            } else {
+                None
             }
-        }
+        };
 
         // get access token expiry and verify hash match
         let access_token_claims = verifier
@@ -270,7 +276,7 @@ where
                 .map(|val| val.secret().to_string()),
             access_token: token_response.access_token().secret().to_string(),
             access_token_expiry,
-            id_token: id_token.cloned(),
+            id_token_claims,
         })
     }
 
@@ -286,12 +292,15 @@ where
         self,
         username: String,
         password: String,
+        scopes: Vec<String>,
     ) -> Result<Account<AC, IC, APM, crate::types::AttributeSet>, AccountError> {
         let client = self.get_client().await?;
 
         let resource_owner_username = openidconnect::ResourceOwnerUsername::new(username);
         let resource_owner_password = openidconnect::ResourceOwnerPassword::new(password);
-        let tok = client.exchange_password(&resource_owner_username, &resource_owner_password)?;
+        let tok = client
+            .exchange_password(&resource_owner_username, &resource_owner_password)?
+            .add_scopes(scopes.into_iter().map(openidconnect::Scope::new));
         let token_response = tok.request_async(&*self.idp.reqwest_client).await?;
 
         self.process_token_response(token_response, None).await
@@ -445,6 +454,99 @@ where
             .read()
             .await
             .access_token
+            .clone())
+    }
+
+    /// Returns a currently valid id token. If it is not valid anymore, it returns an TokenTooOld Error.
+    ///
+    /// Use this function to obtain an id token for usage with another API etc.
+    ///
+    /// Do not use this function if you are driving async tasks within the same thread (you are in an async function).
+    /// Use [`get_id_token`](`Account::get_id_token`) instead.
+    pub fn get_id_token_claims_blocking(
+        &self,
+    ) -> Result<
+        Option<openidconnect::IdTokenClaims<IC, openidconnect::core::CoreGenderClaim>>,
+        AccountError,
+    > {
+        if self
+            .account_tokens
+            .as_ref()
+            .unwrap()
+            .blocking_read()
+            .access_token_expiry
+            < chrono::offset::Utc::now() + *self.min_validity_access_token
+        {
+            return Err(AccountError::TokenTooOld());
+        }
+
+        self.get_id_token_claims_outdated_blocking()
+    }
+
+    /// Returns a currently valid id token. If it is not valid anymore, it returns an TokenTooOld Error.
+    ///
+    /// Use this function to obtain an id token for usage with another API etc.
+    ///
+    /// If you need a non-async id token, please use [`get_id_token_blocking`](`Account::get_id_token_blocking`) instead.
+    pub async fn get_id_token_claims(
+        &self,
+    ) -> Result<
+        Option<openidconnect::IdTokenClaims<IC, openidconnect::core::CoreGenderClaim>>,
+        AccountError,
+    > {
+        if let Some(id_token) = self
+            .account_tokens
+            .as_ref()
+            .unwrap()
+            .read()
+            .await
+            .id_token_claims
+            .as_ref()
+        {
+            if id_token.expiration() < chrono::offset::Utc::now() + *self.min_validity_id_token {
+                return Err(AccountError::TokenTooOld());
+            }
+        }
+
+        self.get_id_token_claims_outdated().await
+    }
+
+    /// Gets the id token from last refresh, even if it is outdated.
+    ///
+    /// Whenever you can, please use [`get_id_token_blocking`](`Account::get_id_token_blocking`)
+    ///
+    /// Do not use this function if you are driving async tasks within the same thread (you are in an async function).
+    pub fn get_id_token_claims_outdated_blocking(
+        &self,
+    ) -> Result<
+        Option<openidconnect::IdTokenClaims<IC, openidconnect::core::CoreGenderClaim>>,
+        AccountError,
+    > {
+        Ok(self
+            .account_tokens
+            .as_ref()
+            .unwrap()
+            .blocking_read()
+            .id_token_claims
+            .clone())
+    }
+
+    /// Gets the id token from last refresh, even if it is outdated.
+    ///
+    /// Whenever you can, please use [`get_id_token`](`Account::get_id_token`)
+    pub async fn get_id_token_claims_outdated(
+        &self,
+    ) -> Result<
+        Option<openidconnect::IdTokenClaims<IC, openidconnect::core::CoreGenderClaim>>,
+        AccountError,
+    > {
+        Ok(self
+            .account_tokens
+            .as_ref()
+            .unwrap()
+            .read()
+            .await
+            .id_token_claims
             .clone())
     }
 

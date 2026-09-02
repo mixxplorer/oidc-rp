@@ -241,7 +241,7 @@ where
         &self,
         jwt: &str,
         nonce: Option<openidconnect::Nonce>,
-    ) -> Result<IdTokenClaims<AC>, VerifierError> {
+    ) -> Result<IdTokenClaims<IC>, VerifierError> {
         let client = crate::types::OidcClient::<IC>::from_provider_metadata(
             self.idp.discovery_attributes().await?,
             self.client_id.clone(),
@@ -249,7 +249,7 @@ where
         );
 
         // parse JWT from string
-        let jwt: IdToken<AC> = openidconnect::IdToken::from_str(jwt)?;
+        let jwt: IdToken<IC> = openidconnect::IdToken::from_str(jwt)?;
 
         let mut verifier = client
             .id_token_verifier()

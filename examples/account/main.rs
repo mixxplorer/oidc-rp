@@ -56,12 +56,13 @@ async fn main() -> anyhow::Result<()> {
         oidc_rp::account::Account::new_public(idp, args.client_id.clone(), verifier);
 
     let account = account
-        .exchange_password(args.username, args.password)
+        .exchange_password(args.username, args.password, vec!["openid".to_string()])
         .await?;
     let account = account.start_auto_refresh();
 
     loop {
         log::info!("Access token: {:?}", account.get_access_token().await?);
+        log::info!("ID token claims: {:?}", account.get_id_token_claims().await);
 
         std::thread::sleep(std::time::Duration::new(90, 0));
     }
