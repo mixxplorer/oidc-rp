@@ -210,6 +210,8 @@ where
     }
 
     /// Processes a token response after e.g. new tokens are obtained. Static version to be also called from updater.
+    ///
+    /// Security warning: Be careful when passing None as nonce. This nonce is required e.g. to prevent replay attacks in SPA applications. If you can, please set it. See also https://openid.net/specs/openid-connect-core-1_0.html#IDToken
     async fn static_process_token_response(
         token_response: openidconnect::StandardTokenResponse<
             openidconnect::IdTokenFields<
@@ -263,6 +265,8 @@ where
     /// If possible, please use another standard, especially if you are running a web app etc.
     ///
     /// There are only a very few cases where this flow might make sense.
+    ///
+    /// Therefore, it is deprecated in the standard.
     pub async fn exchange_password(
         self,
         username: String,
