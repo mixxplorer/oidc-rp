@@ -160,7 +160,7 @@ where
         ))
     }
 
-    /// Helper function to support e.g. IdP caching in Leptos plugin
+    /// Helper function to support e.g. IdP caching
     pub(crate) fn get_idp(self) -> crate::idp::IdP<APM, crate::types::AttributeSet> {
         (*self.idp).clone()
     }

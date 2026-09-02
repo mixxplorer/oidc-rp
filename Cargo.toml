@@ -16,14 +16,6 @@ maintenance = { status = "experimental" }
 [lib]
 crate-type = ["cdylib", "rlib"]
 
-[features]
-wasm = ["dep:web-sys"]
-integrations = []
-leptos = ["integrations", "wasm", "dep:leptos", "dep:leptos_router"]
-js = ["integrations", "wasm"]
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 log = "~0.4"
 serde = { version = "1", features = ["std", "derive"] }
@@ -37,8 +29,6 @@ tokio = { version = "1.37.0", features = ["sync", "macros"] }
 tokio-util = { version = "0.7" }
 futures = "0.3.30"
 
-leptos = { version = "0.6", optional = true }
-leptos_router = { version = "0.6", optional = true }
 web-sys = { version = "0.3.69", features = ["Location", "Storage"], optional = true }
 
 [dev-dependencies]
@@ -47,26 +37,6 @@ clap = { version = "~4.2.7", features = ["derive"] }
 clap-verbosity-flag = "~2.0.1"
 log = "~0.4.21"
 simple_logger = { version = "~4.3.3", features = ["colors", "timestamps", "stderr"] }
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen-futures = "0.4.42"
-web-sys = "0.3.69"
-gloo-timers = { version = "0.3.0", features = ["futures"] }
-wasm-bindgen = "0.2.92"
-console_error_panic_hook = "0.1.7"
-
-
-[target.'cfg(target_arch = "wasm32")'.profile.release]
-# Tell `rustc` to optimize for small code size.
-opt-level = "s"
-
-# For leptus-axum-oidc example
-[profile.wasm-release]
-inherits = "release"
-opt-level = 'z'
-lto = true
-codegen-units = 1
-panic = "abort"
 
 [profile.release]
 lto = true

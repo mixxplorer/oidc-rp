@@ -131,8 +131,6 @@ where
 
     fn build_reqwest_client() -> Result<reqwest::Client, IdPError> {
         let reqwest_client = reqwest::Client::builder();
-        // cannot control redirects in wasm mode as browser handles requests
-        #[cfg(not(target_arch = "wasm32"))]
         // do not set redirect policy as this is handled by browser
         let reqwest_client = reqwest_client
             .redirect(reqwest::redirect::Policy::none())
