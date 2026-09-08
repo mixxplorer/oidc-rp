@@ -114,7 +114,7 @@ where
 {
     /// Creates a new Account object for a specific public client.
     ///
-    /// See https://www.rfc-editor.org/rfc/rfc6749#section-2.1 for more details.
+    /// See <https://www.rfc-editor.org/rfc/rfc6749#section-2.1> for more details.
     pub fn new_public(
         idp: crate::idp::IdP<APM, crate::types::AttributeSet>,
         client_id: String,
@@ -142,7 +142,7 @@ where
 
     /// Creates a new Account object for a specific confidential client.
     ///
-    /// See https://www.rfc-editor.org/rfc/rfc6749#section-2.1 for more details.
+    /// See <https://www.rfc-editor.org/rfc/rfc6749#section-2.1> for more details.
     pub fn new_secret(
         idp: crate::idp::IdP<APM, crate::types::AttributeSet>,
         client_id: String,
@@ -199,10 +199,11 @@ where
         ))
     }
 
-    /// Helper function to support e.g. IdP caching
-    pub(crate) fn get_idp(self) -> crate::idp::IdP<APM, crate::types::AttributeSet> {
-        (*self.idp).clone()
-    }
+    // Prepared for future use
+    // /// Helper function to support e.g. IdP caching
+    // pub(crate) fn get_idp(self) -> crate::idp::IdP<APM, crate::types::AttributeSet> {
+    //     (*self.idp).clone()
+    // }
 
     /// Processes a token response after e.g. new tokens are obtained
     ///
@@ -268,9 +269,9 @@ where
         verifier: std::sync::Arc<crate::verifier::Verifier<AC, IC, APM>>,
         nonce: Option<openidconnect::Nonce>,
     ) -> Result<AccountTokens<IC>, AccountError> {
-        let id_token = token_response.id_token();
-
         let access_token = token_response.access_token().secret().to_string();
+
+        let id_token = token_response.id_token();
 
         // check whether tokens match
         // https://openid.net/specs/openid-connect-core-1_0.html#rfc.section.3.1.3.6
@@ -313,7 +314,7 @@ where
     /// There are only a very few cases where this flow might make sense.
     ///
     /// Therefore, it is deprecated in the standard.
-    /// 
+    ///
     /// Returns a new Account.
     pub async fn exchange_password(
         self,
@@ -351,14 +352,15 @@ where
 
     /// Exchange code to token set. PKCE version. The caller is responsible to check the CSRF token if necessary.
     ///
-    /// For checking the CSRF token, see also https://datatracker.ietf.org/doc/html/rfc6749#section-10.12
+    /// For checking the CSRF token, see also <https://datatracker.ietf.org/doc/html/rfc6749#section-10.12>
     ///
     /// Returns a new Account.
     ///
     /// authorize_url_pkce -> save state, redirect to browser -> catch callback URL
     /// -> scrape code from own URL schema -> call exchange_code_pkce -> call start_refresh -> use tokens
     /// TODO: Make configurable.
-    pub async fn exchange_code_pkce( // TODO: Never used in examples
+    /// TODO: Never used in examples
+    pub async fn exchange_code_pkce(
         self,
         code: String,
         authorize_state: AuthorizePkceState,
@@ -499,7 +501,7 @@ where
     /// Use this function to obtain an id token for usage with another API etc.
     ///
     /// Do not use this function if you are driving async tasks within the same thread (you are in an async function).
-    /// Use [`get_id_token`](`Account::get_id_token`) instead.
+    /// Use [`get_id_token`](`Account::get_id_token_claims`) instead.
     pub fn get_id_token_claims_blocking(
         &self,
     ) -> Result<
@@ -524,7 +526,7 @@ where
     ///
     /// Use this function to obtain an id token for usage with another API etc.
     ///
-    /// If you need a non-async id token, please use [`get_id_token_blocking`](`Account::get_id_token_blocking`) instead.
+    /// If you need a non-async id token, please use [`get_id_token_blocking`](`Account::get_id_token_claims_blocking`) instead.
     pub async fn get_id_token_claims(
         &self,
     ) -> Result<
@@ -539,10 +541,9 @@ where
             .await
             .id_token_claims
             .as_ref()
+            && id_token.expiration() < chrono::offset::Utc::now() + *self.min_validity_id_token
         {
-            if id_token.expiration() < chrono::offset::Utc::now() + *self.min_validity_id_token {
-                return Err(AccountError::TokenTooOld());
-            }
+            return Err(AccountError::TokenTooOld());
         }
 
         self.get_id_token_claims_outdated().await
@@ -550,7 +551,7 @@ where
 
     /// Gets the id token from last refresh, even if it is outdated.
     ///
-    /// Whenever you can, please use [`get_id_token_blocking`](`Account::get_id_token_blocking`)
+    /// Whenever you can, please use [`get_id_token_blocking`](`Account::get_id_token_claims_blocking`)
     ///
     /// Do not use this function if you are driving async tasks within the same thread (you are in an async function).
     pub fn get_id_token_claims_outdated_blocking(
@@ -570,7 +571,7 @@ where
 
     /// Gets the id token from last refresh, even if it is outdated.
     ///
-    /// Whenever you can, please use [`get_id_token`](`Account::get_id_token`)
+    /// Whenever you can, please use [`get_id_token`](`Account::get_id_token_claims`)
     pub async fn get_id_token_claims_outdated(
         &self,
     ) -> Result<

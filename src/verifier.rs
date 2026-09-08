@@ -238,7 +238,7 @@ where
     /// Verify an identity token.
     ///
     /// Security warning: Be careful when passing None as nonce. This nonce is required e.g. to prevent replay attacks in SPA applications. If you can, please set it.
-    /// See also https://openid.net/specs/openid-connect-core-1_0.html#IDToken
+    /// See also <https://openid.net/specs/openid-connect-core-1_0.html#IDToken>
     pub async fn verify_identity_token(
         &self,
         jwt: &str,

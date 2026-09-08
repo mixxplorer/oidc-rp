@@ -9,17 +9,28 @@ use clap::Parser;
 #[command(author, version, long_about = "Account example")]
 pub struct CliArguments {
     #[clap(flatten)]
-    log_level: clap_verbosity_flag::Verbosity,
+    log_level: clap_verbosity_flag::Verbosity<clap_verbosity_flag::InfoLevel>,
 
-    #[arg(short, long, help = "Username to use for direct grant authentication")]
+    #[arg(
+        short,
+        long,
+        help = "Username to use for direct grant authentication",
+        default_value = "test"
+    )]
     username: String,
-    #[arg(short, long, help = "Password to use for direct grant authentication")]
+    #[arg(
+        short,
+        long,
+        help = "Password to use for direct grant authentication",
+        default_value = "notSecureAtAllTest"
+    )]
     password: String,
 
     #[arg(
         short,
         long,
-        help = "Base URL of IdP, e.g. https://keycloak.example.org/realms/your-realm"
+        help = "Base URL of IdP, e.g. https://keycloak.example.org/realms/your-realm",
+        default_value = "http://keycloak.internal/realms/oidc-rp"
     )]
     idp_url: String,
 
@@ -43,12 +54,10 @@ async fn main() -> anyhow::Result<()> {
 
     // fetch access token as we would be a cli tool
 
-    let idp = oidc_rp::idp::IdP::<oidc_rp::idp::EmptyAdditionalIdPMetadata>::new(url::Url::parse(
-        &args.idp_url,
-    )?)
-    .await?
-    .set_default_idp_refresh_strategy()
-    .await?;
+    let idp = oidc_rp::idp::IdP::new(url::Url::parse(&args.idp_url)?)
+        .await?
+        .set_default_idp_refresh_strategy()
+        .await?;
 
     let verifier = oidc_rp::verifier::Verifier::<oidc_rp::oidc::EmptyAdditionalClaims>::new(
         idp.clone(),
@@ -64,10 +73,30 @@ async fn main() -> anyhow::Result<()> {
         .await?;
     let account = account.start_auto_refresh();
 
-    loop {
-        log::info!("Access token: {:?}", account.get_access_token().await?);
-        log::info!("ID token claims: {:?}", account.get_id_token_claims().await);
+    let first_at = account.get_access_token().await?;
+    log::info!("First Access Token: {:?}", first_at);
+    log::debug!("ID token claims: {:?}", account.get_id_token_claims().await);
 
-        std::thread::sleep(std::time::Duration::new(90, 0));
+    std::thread::sleep(std::time::Duration::new(70, 0));
+
+    // With our test setup (Keycloak) where access tokens expire every 2 minutes, we expect to see the same token
+    if first_at == account.get_access_token().await? {
+        log::info!("Still getting same access token as expected!");
+    } else {
+        anyhow::bail!("Access token has unexpectedly changed!");
     }
+
+    std::thread::sleep(std::time::Duration::new(120 - 70, 0));
+
+    let final_at = account.get_access_token().await?;
+    if final_at == first_at {
+        anyhow::bail!("first and final access tokens are equal, although they should not be!")
+    }
+
+    log::info!("New access token has been fetched.");
+    log::debug!("Access token: {:?}", final_at);
+    // ensure id token claims can still be fetched
+    log::debug!("ID token claims: {:?}", account.get_id_token_claims().await);
+
+    Ok(())
 }

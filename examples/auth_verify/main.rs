@@ -5,17 +5,28 @@ use clap::Parser;
 #[command(author, version, long_about = "Verification example / benchmark")]
 pub struct CliArguments {
     #[clap(flatten)]
-    log_level: clap_verbosity_flag::Verbosity,
+    log_level: clap_verbosity_flag::Verbosity<clap_verbosity_flag::InfoLevel>,
 
-    #[arg(short, long, help = "Username to use for direct grant authentication")]
+    #[arg(
+        short,
+        long,
+        help = "Username to use for direct grant authentication",
+        default_value = "test"
+    )]
     username: String,
-    #[arg(short, long, help = "Password to use for direct grant authentication")]
+    #[arg(
+        short,
+        long,
+        help = "Password to use for direct grant authentication",
+        default_value = "notSecureAtAllTest"
+    )]
     password: String,
 
     #[arg(
         short,
         long,
-        help = "Base URL of IdP, e.g. https://keycloak.example.org/realms/your-realm"
+        help = "Base URL of IdP, e.g. https://keycloak.example.org/realms/your-realm",
+        default_value = "http://keycloak.internal/realms/oidc-rp"
     )]
     idp_url: String,
 
@@ -39,12 +50,10 @@ async fn main() -> anyhow::Result<()> {
 
     // fetch access token as we would be a cli tool
     let access_token: String = {
-        let idp = oidc_rp::idp::IdP::<oidc_rp::idp::EmptyAdditionalIdPMetadata>::new(
-            url::Url::parse(&args.idp_url)?,
-        )
-        .await?
-        .set_no_idp_refresh_strategy()
-        .await?;
+        let idp = oidc_rp::idp::IdP::new(url::Url::parse(&args.idp_url)?)
+            .await?
+            .set_no_idp_refresh_strategy()
+            .await?;
 
         let verifier = oidc_rp::verifier::Verifier::<oidc_rp::oidc::EmptyAdditionalClaims>::new(
             idp.clone(),
@@ -64,7 +73,8 @@ async fn main() -> anyhow::Result<()> {
             .exchange_password(args.username, args.password, vec![])
             .await?;
 
-        log::info!("Access token: {:?}", account.get_access_token().await?);
+        log::info!("Account password exchanged for token");
+        log::debug!("Access token: {:?}", account.get_access_token().await?);
 
         account.get_access_token().await?.clone()
     };
@@ -73,11 +83,11 @@ async fn main() -> anyhow::Result<()> {
 
     // now, verify this access token as we would be a relying party
     {
-        let idp = oidc_rp::idp::IdP::<oidc_rp::idp::EmptyAdditionalIdPMetadata>::new(
+        let idp = oidc_rp::idp::IdP::<oidc_rp::oidc::EmptyAdditionalProviderMetadata>::new(
             url::Url::parse(&args.idp_url)?,
         )
         .await?
-        .set_default_idp_refresh_strategy()
+        .set_no_idp_refresh_strategy()
         .await?;
 
         let verifier = oidc_rp::verifier::Verifier::<oidc_rp::oidc::EmptyAdditionalClaims>::new(
@@ -87,14 +97,26 @@ async fn main() -> anyhow::Result<()> {
         .allow_all_access_token_jose_types()
         .set_other_audience_verifier_fn(|_| true);
         log::info!("Starting verifying claims");
-        // 100_000 is arbitrary such that all verifications should terminate on reasonable hardware before the token expires.
-        for _ in 0..100_000 {
+        // 10_000 is arbitrary such that all verifications should terminate on reasonable hardware before the token expires.
+        for _ in 0..10_000 {
             verifier.verify_access_token(&access_token).await.unwrap();
         }
-        log::info!("Verified 100k access tokens!");
-        let claims: oidc_rp::verifier::JwtAccessTokenClaims<oidc_rp::oidc::EmptyAdditionalClaims> =
+        log::info!("Verified 10k access tokens!");
+        let claims: oidc_rp::verifier::JwtAccessTokenClaims<_> =
             verifier.verify_access_token(&access_token).await.unwrap();
-        log::info!("Verified! Claims: {claims:#?}");
+        log::info!("Extracted claims!");
+        log::debug!("Claims: {claims:#?}");
+
+        // wait two minutes until access token becomes invalid (default for the Keycloak test setup)
+        std::thread::sleep(std::time::Duration::new(120, 0));
+        let expected_error = verifier.verify_access_token(&access_token).await;
+        match expected_error {
+            Ok(_) => anyhow::bail!("Access token validation should have errored!"),
+            Err(error) => {
+                log::info!("Access token validation has errored as expected!");
+                log::debug!("Access token validation error: {error:?}");
+            }
+        }
     }
 
     Ok(())

@@ -1,0 +1,125 @@
+image: dr.rechenknecht.net/bauhelfer/container/main/rust:ubuntu-resolute
+
+stages:
+  - build
+  - test
+  - pack
+  - test-e2e
+
+variables:
+  # This will instruct Docker not to start over TLS.
+  DOCKER_TLS_CERTDIR: ""
+  CARGO_HOME: $CI_PROJECT_DIR/.cargo
+
+cache:
+  # Cache per branch
+  key: ${CI_COMMIT_REF_SLUG}
+  paths:
+    - target
+    - ${CI_PROJECT_DIR}/.cargo
+
+############
+# Building
+############
+
+build-lib:
+  stage: build
+  script:
+    - RUSTFLAGS="-Dunused-crate-dependencies" cargo build --release
+  needs: []
+
+build-examples:
+  stage: build
+  script:
+    - cargo build --release --examples
+  artifacts:
+    paths:
+      - target/release/examples/account
+      - target/release/examples/auth_verify
+      - target/release/examples/jwks
+    expire_in: 1 week
+    when: always
+  needs: []
+
+############
+# Testing
+############
+
+lint:
+  stage: test
+  needs: []
+  script:
+    - rustup component add clippy
+    - cargo clippy --all-targets -- -Dwarnings
+
+fmt-check:
+  stage: test
+  needs: []
+  script:
+    - rustup component add rustfmt
+    - cargo fmt --all -- --check
+
+doc:
+  stage: test
+  needs: []
+  script:
+    - RUSTDOCFLAGS="-D warnings" cargo doc
+
+test-debug:
+  stage: test
+  needs: []
+  services:
+    - name: ${CI_DEPENDENCY_PROXY_DIRECT_GROUP_IMAGE_PREFIX}/keycloak/keycloak:26.7
+      alias: keycloak.internal
+      command: ["start-dev", "--import-realm", "--verbose"]
+      variables:
+        KC_HTTP_PORT: "80"
+        KC_HEALTH_ENABLED: "true"
+        # Set management port to default port 8080 to fulfil health check of GitLab runner
+        KC_HTTP_MANAGEMENT_PORT: "8080"
+      entrypoint:
+        # Sadly, waiting until everything is checked out and set up is not supported out of the box :(
+        # Using workaround from https://gitlab.com/gitlab-org/gitlab-runner/-/issues/3210#note_380999884
+        - '/bin/bash'
+        - '-c'
+        - |
+          # wait for project clone/checkout
+          # i'm relying on git index to indicate the clone/checkout is done
+          echo "Waiting for git checkout"
+          until [ -f "$CI_PROJECT_DIR/.git/index" ]; do sleep 0.1; done;
+          echo "Waiting for git lock to be released"
+          # especially after the lock file has been removed
+          while [ -f "$CI_PROJECT_DIR/.git/index.lock" ]; do sleep 0.1; done;
+          # copy/setup files
+          mkdir /opt/keycloak/data/import
+          cp -r "$CI_PROJECT_DIR/e2e/keycloak/oidc-rp.json" /opt/keycloak/data/import/
+          # pass control to the default image entrypoint
+          exec /opt/keycloak/bin/kc.sh start-dev --import-realm --verbose
+  script:
+    - rustup toolchain install nightly
+    # Request the Keycloak for a token, there is a race condition as the token keypairs will be only created after the first token request.
+    # However, the client (correctly) requests the JWKS beforehand.
+    - rustup run nightly cargo llvm-cov --html run --example auth_verify || true
+    - rustup run nightly cargo llvm-cov --html --all-features --doctests
+    - rustup run nightly cargo llvm-cov --html --no-clean run --example jwks
+    - rustup run nightly cargo llvm-cov --html --no-clean run --example auth_verify
+    - rustup run nightly cargo llvm-cov --html --no-clean run --example account
+    - mkdir -p target/llvm-cov
+    - rustup run nightly cargo llvm-cov report --doctests --cobertura --output-path target/llvm-cov/cobertura.xml
+    - "xmllint --xpath \"concat('Coverage: ', 100 * string(//coverage/@line-rate), '%')\" target/llvm-cov/cobertura.xml"
+  coverage: '/Coverage: \d+(?:\.\d+)?/'
+  artifacts:
+    paths:
+      - target/llvm-cov/
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: target/llvm-cov/cobertura.xml
+
+lint-cargo-toml:
+  stage: test
+  needs: []
+  before_script:
+    - cargo install cargo-sort
+  script:
+    - cargo sort --check --workspace && echo "Cargo.toml formatted correctly ✅"

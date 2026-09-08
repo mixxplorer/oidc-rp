@@ -1,0 +1,23 @@
+services:
+  oidc-rp-dev:
+    build:
+      dockerfile: Containerfile
+      context: .
+      args:
+        REMOTE_USER: ${USER}
+    volumes:
+      - ..:/workspace:cached
+
+  keycloak:
+    image: "quay.io/keycloak/keycloak:26.7"
+    hostname: keycloak.internal
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: password
+      KC_HTTP_PORT: 80
+    volumes:
+      - "../e2e/keycloak/oidc-rp.json:/opt/keycloak/data/import/oidc-rp.json"
+    command: start-dev --import-realm --verbose
+    ports:
+      # This port must not be occupied on host system
+      - "8158:80"

@@ -10,7 +10,8 @@ pub struct CliArguments {
     #[arg(
         short,
         long,
-        help = "Base URL of IdP, e.g. https://keycloak.example.org/realms/your-realm"
+        help = "Base URL of IdP, e.g. https://keycloak.example.org/realms/your-realm",
+        default_value = "http://keycloak.internal/realms/oidc-rp"
     )]
     idp_url: String,
 }
@@ -37,14 +38,16 @@ async fn main() -> anyhow::Result<()> {
         .set_default_idp_refresh_strategy()
         .await?;
 
-        log::debug!("JWKS: {:?}", idp.jwks().await?);
+        let jwks = idp.jwks().await?;
+        log::info!("Received JWKS!");
+        log::debug!("JWKS: {:?}", jwks);
 
         std::thread::sleep(std::time::Duration::new(65, 0));
 
-        log::debug!("JWKS: {:?}", idp.jwks().await);
+        let jwks = idp.jwks().await?;
+        log::info!("Received JWKS!");
+        log::debug!("JWKS: {:?}", jwks);
     }
-
-    // std::thread::sleep(std::time::Duration::new(60, 0));
 
     Ok(())
 }

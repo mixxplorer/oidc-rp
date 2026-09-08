@@ -88,53 +88,16 @@ where
     APM: openidconnect::AdditionalProviderMetadata + PartialEq + Sync + Send + 'static,
     IsRefreshStrategySet: crate::types::AttributeState,
 {
-    /// Creates a new identity provider object.
+    /// Default reqwest client sufficient for most use-cases.
     ///
-    /// # Examples
-    ///
-    /// Just fetch IdP metadata:
-    /// ```
-    /// let idp = IdP::new("https://keycloak.example.org/realms/test");
-    /// // get JWKs (beware: these are not automatically refreshed yet! Not recommended if you want to verify anything!)
-    /// idp.jwks()
-    ///
-    /// ```
-    ///
-    /// Automatically refresh JWKs (to use for verifying access tokens)
-    /// ```
-    /// let mut idp = oidc_rp::idp::IdP::<oidc_rp::idp::EmptyAdditionalIdPMetadata>::new(
-    ///     url::Url::parse("https://keycloak.example.org/realms/test")?,
-    /// )?.set_default_jwks_refresh_strategy()?;
-    ///
-    /// // now you can access the jwks (across threads) for verifying access tokens
-    /// idp.jwks()
-    /// ```
-    ///
-    pub async fn new(base_url: url::Url) -> Result<Self, IdPError> {
-        let reqwest_client_arc = std::sync::Arc::new(Self::build_reqwest_client()?);
-        let discovery_attributes =
-            Self::fetch_discovery_attributes(&reqwest_client_arc, base_url.clone()).await?;
-
-        Ok(Self {
-            attributes: tokio::sync::RwLock::new(IdPAttributes::<APM> {
-                base_url,
-                discovery: discovery_attributes,
-                last_data_refresh: chrono::offset::Utc::now(),
-                data_usable_until: None,
-            })
-            .into(),
-            reqwest_client: reqwest_client_arc,
-            idp_updater: None,
-            phantom: std::marker::PhantomData,
-        })
-    }
-
-    fn build_reqwest_client() -> Result<reqwest::Client, IdPError> {
+    /// Does not support modifications, if this is required, please setup a new [`new`](IdP::new) function,
+    /// which support passing a reqwest client. This is, however, more error prone (and dangerous)
+    /// and therefore not implemented yet.
+    fn build_default_reqwest_client() -> Result<reqwest::Client, IdPError> {
         let reqwest_client = reqwest::Client::builder();
         // do not set redirect policy as this is handled by browser
         let reqwest_client = reqwest_client
             .redirect(reqwest::redirect::Policy::none())
-            // do not set user agent as this might not be allowed due to CORS
             .user_agent(concat!(
                 env!("CARGO_PKG_NAME"),
                 "/",
@@ -192,7 +155,7 @@ where
     fn try_from(
         value: IdPAttributesShare<APM>,
     ) -> Result<IdP<APM, crate::types::AttributeNotSet>, Self::Error> {
-        let reqwest_client_arc = std::sync::Arc::new(Self::build_reqwest_client()?);
+        let reqwest_client_arc = std::sync::Arc::new(Self::build_default_reqwest_client()?);
 
         // restore correct JWKS
         let mut attrs = value.attributes;
@@ -220,10 +183,10 @@ where
         let attributes = self.attributes.read().await;
 
         // Check whether the IDP data got updated recently enough
-        if let Some(jwks_usable_until) = attributes.data_usable_until {
-            if jwks_usable_until < chrono::offset::Utc::now() {
-                return Err(IdPError::DataTooOld());
-            }
+        if let Some(jwks_usable_until) = attributes.data_usable_until
+            && jwks_usable_until < chrono::offset::Utc::now()
+        {
+            return Err(IdPError::DataTooOld());
         }
 
         Ok(attributes.discovery.clone())
@@ -242,6 +205,60 @@ impl<APM> IdP<APM, crate::types::AttributeNotSet>
 where
     APM: openidconnect::AdditionalProviderMetadata + PartialEq + Sync + Send + 'static,
 {
+    /// Creates a new identity provider object.
+    ///
+    /// To fetch jwks, you need to set a refresh strategy like [`DefaultIdPDataRefreshStrategy`] by calling [`set_default_idp_refresh_strategy`](IdP::set_default_idp_refresh_strategy).
+    ///
+    /// # Examples
+    ///
+    /// /// Automatically refresh JWKs (to use for verifying access tokens)
+    /// ```
+    /// # async fn test() -> anyhow::Result<()> {
+    /// let idp = oidc_rp::idp::IdP::<oidc_rp::oidc::EmptyAdditionalProviderMetadata>::new(url::Url::parse("http://keycloak.internal/realms/oidc-rp")?).await?
+    ///     .set_default_idp_refresh_strategy().await?;
+    /// // get up-to-date (regarding the default refresh strategy) JWKs, see [`DefaultIdPDataRefreshStrategy`].
+    /// let jwks = idp.jwks();
+    /// # Ok(())
+    /// # }
+    /// # tokio_test::block_on(async {
+    /// #    test().await.unwrap();
+    /// # })
+    /// ```
+    ///
+    /// Just fetch IdP metadata:
+    /// ```
+    /// # async fn test() -> anyhow::Result<()> {
+    /// let idp = oidc_rp::idp::IdP::<oidc_rp::oidc::EmptyAdditionalProviderMetadata>::new(url::Url::parse("http://keycloak.internal/realms/oidc-rp")?).await?
+    ///     .set_no_idp_refresh_strategy().await?;
+    /// // get JWKs, beware: these are not automatically refreshed yet! Not recommended if you want to build
+    /// // a long running application like a server, see above.
+    /// let jwks = idp.jwks();
+    /// # Ok(())
+    /// # }
+    /// # tokio_test::block_on(async {
+    /// #    test().await.unwrap();
+    /// # })
+    /// ```
+    ///
+    pub async fn new(base_url: url::Url) -> Result<Self, IdPError> {
+        let reqwest_client_arc = std::sync::Arc::new(Self::build_default_reqwest_client()?);
+        let discovery_attributes =
+            Self::fetch_discovery_attributes(&reqwest_client_arc, base_url.clone()).await?;
+
+        Ok(Self {
+            attributes: tokio::sync::RwLock::new(IdPAttributes::<APM> {
+                base_url,
+                discovery: discovery_attributes,
+                last_data_refresh: chrono::offset::Utc::now(),
+                data_usable_until: None,
+            })
+            .into(),
+            reqwest_client: reqwest_client_arc,
+            idp_updater: None,
+            phantom: std::marker::PhantomData,
+        })
+    }
+
     /// Returns possibly outdated discovery attributes.
     ///
     /// Returns discovery attributes which were fetched during object creation.
@@ -283,7 +300,9 @@ where
         })
     }
 
-    /// Sets the IdP data refresh strategy to the default one and start refreshing IdP data
+    /// Sets the IdP data refresh strategy to the default one and start refreshing IdP data.
+    ///
+    /// Uses [`DefaultIdPDataRefreshStrategy`].
     pub async fn set_default_idp_refresh_strategy(
         self,
     ) -> Result<IdP<APM, crate::types::AttributeSet>, IdPError> {
@@ -406,7 +425,7 @@ impl IdPRefreshStrategy for DefaultIdPDataRefreshStrategy {
 /// This is intended to be used with one time IdP usages and will prevent using IdP metadata
 /// after 10 minutes.
 ///
-/// Please use the [`DefaultJwksRefreshStrategy`] for all other cases (or a similar strategy).
+/// Please use the [`DefaultIdPDataRefreshStrategy`] for all other cases (or a similar strategy).
 #[derive(Debug, Clone)]
 pub struct NoIdPDataRefreshStrategy {}
 impl NoIdPDataRefreshStrategy {
