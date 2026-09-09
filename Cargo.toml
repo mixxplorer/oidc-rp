@@ -56,3 +56,8 @@ crate-type = ["bin"]
 name = "jwks"
 path = "examples/jwks/main.rs"
 crate-type = ["bin"]
+
+[[example]]
+name = "pkce"
+path = "examples/pkce/main.rs"
+crate-type = ["bin"]

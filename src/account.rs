@@ -57,7 +57,7 @@ pub struct AuthorizePkceState {
     pub csrf_token: openidconnect::CsrfToken,
     pub nonce: openidconnect::Nonce,
     pub callback_url: url::Url,
-    pub redirect_url: url::Url,
+    pub redirect_url: Option<url::Url>,
 }
 
 #[derive(Debug, Clone)]
@@ -354,17 +354,28 @@ where
     ///
     /// For checking the CSRF token, see also <https://datatracker.ietf.org/doc/html/rfc6749#section-10.12>
     ///
-    /// Returns a new Account.
+    /// Returns a new Account and the original redirect URL the user should get redirected to.
     ///
-    /// authorize_url_pkce -> save state, redirect to browser -> catch callback URL
-    /// -> scrape code from own URL schema -> call exchange_code_pkce -> call start_refresh -> use tokens
-    /// TODO: Make configurable.
-    /// TODO: Never used in examples
+    /// Intended usage:
+    ///
+    /// 1. Caller calls [`authorize_url_pkce`](Account::authorize_url_pkce)
+    /// 1. Library generates PKCE state with verifier (serializable)
+    /// 1. Caller should store state
+    /// 1. Caller redirects user in browser
+    /// 1. Caller receives URL at callback URL
+    /// 1. Caller calls `exchange_code_pkce`
+    /// 1. Caller receives tokens
     pub async fn exchange_code_pkce(
         self,
         code: String,
         authorize_state: AuthorizePkceState,
-    ) -> Result<Account<AC, IC, APM, crate::types::AttributeSet>, AccountError> {
+    ) -> Result<
+        (
+            Account<AC, IC, APM, crate::types::AttributeSet>,
+            Option<url::Url>,
+        ),
+        AccountError,
+    > {
         let client =
             self.get_client()
                 .await?
@@ -377,17 +388,26 @@ where
             .request_async(&*self.idp.reqwest_client)
             .await?;
 
-        self.process_token_response(token_response, Some(authorize_state.nonce))
-            .await
+        Ok((
+            self.process_token_response(token_response, Some(authorize_state.nonce))
+                .await?,
+            authorize_state.redirect_url,
+        ))
     }
 
     /// Use this to generate a URL to redirect the user agent for authentication,
     /// as well as the state needed to verify a response then they come back
+    ///
+    /// Callback URL is the URL the IdP will redirect back to.
+    ///
+    /// Redirect URL is the URL the user should get redirected to after PKCE authentication is successfully performed.
+    ///
+    /// See [`exchange_code_pkce`](Account::exchange_code_pkce) for general usage instructions.
     pub async fn authorize_url_pkce(
         &self,
         scopes: Vec<String>,
         callback_url: url::Url,
-        redirect_url: url::Url,
+        redirect_url: Option<url::Url>,
     ) -> Result<(url::Url, AuthorizePkceState), AccountError> {
         let (pkce_challenge, pkce_verifier) = openidconnect::PkceCodeChallenge::new_random_sha256();
 
