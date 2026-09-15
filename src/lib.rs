@@ -1,5 +1,6 @@
 pub mod account;
 pub mod idp;
+pub mod integration;
 pub mod types;
 mod updater;
 pub mod verifier;

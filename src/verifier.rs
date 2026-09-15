@@ -20,6 +20,9 @@ pub enum VerifierError {
     #[error("Unable to calculate signature of token!")]
     TokenSignatureCalculationError(#[from] openidconnect::SigningError),
 
+    #[error("Token has wrong format")]
+    TokenWrongFormat(),
+
     #[error("Expected token hash does not match with calculated token hash!")]
     TokenSignatureMismatchError(),
 }
@@ -182,6 +185,18 @@ where
         jwt: &str,
     ) -> Result<JwtAccessTokenClaims<AC>, VerifierError> {
         self.verify_access_token_with_hash(jwt, None).await
+    }
+
+    /// For RP: Verifies access token on every request. Main function you need to implement RP.
+    /// Strips a `Bearer ` string in the beginning. Errors if there is no `Bearer ` string.
+    pub async fn verify_access_token_strip_bearer(
+        &self,
+        jwt_with_prefix: &str,
+    ) -> Result<JwtAccessTokenClaims<AC>, VerifierError> {
+        match jwt_with_prefix.strip_prefix("Bearer ") {
+            Some(jwt) => self.verify_access_token(jwt).await,
+            None => Err(VerifierError::TokenWrongFormat()),
+        }
     }
 
     /// Helper function to verify an access token with hash as required during token fetching.
