@@ -627,64 +627,80 @@
       }
     ]
   }, {
-  "clientId": "oidc-rp-secret",
-  "name": "",
-  "description": "",
-  "rootUrl": "",
-  "adminUrl": "",
-  "baseUrl": "",
-  "surrogateAuthRequired": false,
-  "enabled": true,
-  "alwaysDisplayInConsole": false,
-  "clientAuthenticatorType": "client-secret",
-  "secret": "m7moK8yJJbqKYyIULCX356aJR6hJ5XIvZMAuyP1YN4QLqEOOzjYXBH50j6cn9A28irAwHtRFAHKpYEg9Up1GV7",
-  "redirectUris": [],
-  "webOrigins": [],
-  "notBefore": 0,
-  "bearerOnly": false,
-  "consentRequired": false,
-  "standardFlowEnabled": true,
-  "implicitFlowEnabled": false,
-  "directAccessGrantsEnabled": false,
-  "serviceAccountsEnabled": true,
-  "publicClient": false,
-  "frontchannelLogout": true,
-  "protocol": "openid-connect",
-  "attributes": {
-    "realm_client": "false",
-    "oidc.ciba.grant.enabled": "false",
-    "client.secret.creation.time": "1789481213",
-    "backchannel.logout.session.required": "true",
-    "standard.token.exchange.enabled": "false",
-    "oauth2.jwt.authorization.grant.enabled": "false",
-    "oauth2.device.authorization.grant.enabled": "false",
-    "backchannel.logout.revoke.offline.tokens": "false",
-    "dpop.bound.access.tokens": "false"
-  },
-  "authenticationFlowBindingOverrides": {},
-  "fullScopeAllowed": true,
-  "nodeReRegistrationTimeout": -1,
-  "defaultClientScopes": [
-    "web-origins",
-    "service_account",
-    "acr",
-    "profile",
-    "roles",
-    "basic",
-    "email"
-  ],
-  "optionalClientScopes": [
-    "address",
-    "phone",
-    "offline_access",
-    "organization",
-    "microprofile-jwt"
-  ],
-  "access": {
-    "view": true,
-    "configure": true,
-    "manage": true
-  }
+    "clientId": "oidc-rp-secret",
+    "name": "",
+    "description": "",
+    "rootUrl": "",
+    "adminUrl": "",
+    "baseUrl": "",
+    "surrogateAuthRequired": false,
+    "enabled": true,
+    "alwaysDisplayInConsole": false,
+    "clientAuthenticatorType": "client-secret",
+    "secret": "m7moK8yJJbqKYyIULCX356aJR6hJ5XIvZMAuyP1YN4QLqEOOzjYXBH50j6cn9A28irAwHtRFAHKpYEg9Up1GV7",
+    "redirectUris": [],
+    "webOrigins": [],
+    "notBefore": 0,
+    "bearerOnly": false,
+    "consentRequired": false,
+    "standardFlowEnabled": true,
+    "implicitFlowEnabled": false,
+    "directAccessGrantsEnabled": false,
+    "serviceAccountsEnabled": true,
+    "publicClient": false,
+    "frontchannelLogout": true,
+    "protocol": "openid-connect",
+    "attributes": {
+      "realm_client": "false",
+      "oidc.ciba.grant.enabled": "false",
+      "client.secret.creation.time": "1789481213",
+      "backchannel.logout.session.required": "true",
+      "standard.token.exchange.enabled": "false",
+      "oauth2.jwt.authorization.grant.enabled": "false",
+      "oauth2.device.authorization.grant.enabled": "false",
+      "backchannel.logout.revoke.offline.tokens": "false",
+      "dpop.bound.access.tokens": "false"
+    },
+    "authenticationFlowBindingOverrides": {},
+    "fullScopeAllowed": true,
+    "nodeReRegistrationTimeout": -1,
+    "defaultClientScopes": [
+      "web-origins",
+      "service_account",
+      "acr",
+      "profile",
+      "roles",
+      "basic",
+      "email"
+    ],
+    "optionalClientScopes": [
+      "address",
+      "phone",
+      "offline_access",
+      "organization",
+      "microprofile-jwt"
+    ],
+    "access": {
+      "view": true,
+      "configure": true,
+      "manage": true
+    },
+    "protocolMappers": [
+      {
+        "name": "aud",
+        "protocol": "openid-connect",
+        "protocolMapper": "oidc-audience-mapper",
+        "consentRequired": false,
+        "config": {
+          "included.client.audience": "oidc-rp-secret",
+          "id.token.claim": "true",
+          "lightweight.claim": "false",
+          "introspection.token.claim": "true",
+          "access.token.claim": "true",
+          "userinfo.token.claim": "false"
+        }
+      }
+    ]
   }, {
     "id" : "5c5d1dc6-7362-41b6-ae62-cbb0df7f9915",
     "clientId" : "realm-management",
