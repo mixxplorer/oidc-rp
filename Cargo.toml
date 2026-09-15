@@ -34,6 +34,9 @@ simple_logger = { version = "~5.2.0", features = ["colors", "timestamps", "stder
 tokio = { version = "1.37.0", features = ["rt-multi-thread"] }
 tokio-test = "0.4"
 
+[features]
+special-reqwest-client = []
+
 [badges]
 maintenance = { status = "experimental" }
 

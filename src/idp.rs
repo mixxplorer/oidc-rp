@@ -83,20 +83,22 @@ pub struct IdP<
     phantom: std::marker::PhantomData<IsRefreshStrategySet>,
 }
 
-impl<APM, IsRefreshStrategySet> IdP<APM, IsRefreshStrategySet>
-where
-    APM: openidconnect::AdditionalProviderMetadata + PartialEq + Sync + Send + 'static,
-    IsRefreshStrategySet: crate::types::AttributeState,
-{
+impl IdP {
     /// Default reqwest client sufficient for most use-cases.
     ///
-    /// Does not support modifications, if this is required, please setup a new [`new`](IdP::new) function,
-    /// which support passing a reqwest client. This is, however, more error prone (and dangerous)
-    /// and therefore not implemented yet.
+    /// If you need an own client with specific configuration, please make sure to
+    /// use safe defaults (check the code of [this](IdP::get_default_reqwest_client_internal) function).
+    ///
+    /// If possible, please use [`get_default_reqwest_client`](`Idp::get_default_reqwest_client`) as a base builder.
     fn build_default_reqwest_client() -> Result<reqwest::Client, IdPError> {
-        let reqwest_client = reqwest::Client::builder();
+        let builder = Self::get_default_reqwest_client_internal();
+        builder.build().map_err(|_| IdPError::FetchError)
+    }
+
+    fn get_default_reqwest_client_internal() -> reqwest::ClientBuilder {
+        let builder = reqwest::Client::builder();
         // do not set redirect policy as this is handled by browser
-        let reqwest_client = reqwest_client
+        let builder = builder
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!(
                 env!("CARGO_PKG_NAME"),
@@ -104,9 +106,34 @@ where
                 env!("CARGO_PKG_VERSION"),
             ))
             .referer(false);
-        reqwest_client.build().map_err(|_| IdPError::FetchError)
+
+        builder
     }
 
+    /// Provides a basic built client for further modifications.
+    /// This client contains most basic features, making the build available for further modificiations, eg:
+    ///
+    /// ```rust
+    /// # fn test() -> anyhow::Result<()> {
+    /// let builder = oidc_rp::idp::IdP::get_default_reqwest_client();
+    /// let builder = builder.timeout(std::time::Duration::from_secs(10));
+    /// let client = builder.build()?;
+    ///
+    /// // Then use `client` to construct new IdP object
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[cfg(feature = "special-reqwest-client")]
+    pub fn get_default_reqwest_client() -> reqwest::ClientBuilder {
+        Self::get_default_reqwest_client_internal()
+    }
+}
+
+impl<APM, IsRefreshStrategySet> IdP<APM, IsRefreshStrategySet>
+where
+    APM: openidconnect::AdditionalProviderMetadata + PartialEq + Sync + Send + 'static,
+    IsRefreshStrategySet: crate::types::AttributeState,
+{
     async fn fetch_discovery_attributes(
         reqwest_client: &reqwest::Client,
         base_url: url::Url,
@@ -155,7 +182,7 @@ where
     fn try_from(
         value: IdPAttributesShare<APM>,
     ) -> Result<IdP<APM, crate::types::AttributeNotSet>, Self::Error> {
-        let reqwest_client_arc = std::sync::Arc::new(Self::build_default_reqwest_client()?);
+        let reqwest_client_arc = std::sync::Arc::new(IdP::build_default_reqwest_client()?);
 
         // restore correct JWKS
         let mut attrs = value.attributes;
@@ -240,8 +267,33 @@ where
     /// # })
     /// ```
     ///
+    /// To use a custom reqwest client, which supports e.g. trusting specific certificates, use [`new_with_reqwest_client`](`IdP::new_with_reqwest_client`).
+    ///
     pub async fn new(base_url: url::Url) -> Result<Self, IdPError> {
-        let reqwest_client_arc = std::sync::Arc::new(Self::build_default_reqwest_client()?);
+        let reqwest_client = IdP::build_default_reqwest_client()?;
+        Self::new_internal(base_url, reqwest_client).await
+    }
+
+    /// Creates a new identity provider object like in [`new`](`IdP::new`) but with the ability to pass in an own reqwest object.
+    ///
+    /// Passing in an own reqwest client requires more considerations regarding security, therefore only use this function if you really need
+    /// an own reqwest client (e.g. for trusting specific certificates).
+    ///
+    /// If possible, please use [`oidc_rp::idp::IdP::get_default_reqwest_client`](`IdP::get_default_reqwest_client`) to obtain a basic client builder.
+    #[cfg(feature = "special-reqwest-client")]
+    pub async fn new_with_reqwest_client(
+        base_url: url::Url,
+        reqwest_client: reqwest::Client,
+    ) -> Result<Self, IdPError> {
+        Self::new_internal(base_url, reqwest_client).await
+    }
+
+    /// Internal shared code function for [`new_with_reqwest_client`](`IdP::new_with_reqwest_client`) and [`new`](`IdP::new`)
+    async fn new_internal(
+        base_url: url::Url,
+        reqwest_client: reqwest::Client,
+    ) -> Result<Self, IdPError> {
+        let reqwest_client_arc = std::sync::Arc::new(reqwest_client);
         let discovery_attributes =
             Self::fetch_discovery_attributes(&reqwest_client_arc, base_url.clone()).await?;
 
