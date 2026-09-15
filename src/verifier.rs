@@ -177,12 +177,32 @@ where
         self
     }
 
+    /// Specifies a function for verifying audiences included in the `aud` claim that differ from
+    /// the client ID.
+    ///
+    /// The function should return `true` if the audience is trusted, or `false` otherwise.
+    /// One untrusted audience will fail the token verification.
+    ///
+    /// Sometimes, it might be valid to allow all other audiences. For this, see [`Verifier::allow_other_audiences`]
     pub fn set_other_audience_verifier_fn(
         mut self,
         other_audience_verifier_fn: fn(&openidconnect::Audience) -> bool,
     ) -> Self {
         self.other_audience_verifier_fn = other_audience_verifier_fn;
         self
+    }
+
+    /// Allow additional, other audiences in tokens.
+    ///
+    /// When multiple audiences are in one token, a rogue service might use an access token
+    /// to get access to other services. This can be prevented by checking for other audiences.
+    ///
+    /// Only execute this function, if you trust your IdP to only include sensible audiences in
+    /// access and id tokens.
+    ///
+    /// See also [`Verifier::set_other_audience_verifier_fn`].
+    pub fn allow_other_audiences(self) -> Self {
+        self.set_other_audience_verifier_fn(|_| true)
     }
 
     /// For RP: Verifies access token on every request. Main function you need to implement RP.

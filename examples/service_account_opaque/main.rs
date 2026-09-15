@@ -54,8 +54,10 @@ async fn main() -> anyhow::Result<()> {
         idp.clone(),
         args.client_id.clone(),
     )?
-    .set_access_token_allowed_jose_types(vec![openidconnect::JsonWebTokenType::new("JWT".to_owned()).normalize()?])
-    .set_other_audience_verifier_fn(|_| true);
+    .set_access_token_allowed_jose_types(vec![
+        openidconnect::JsonWebTokenType::new("JWT".to_owned()).normalize()?,
+    ])
+    .allow_other_audiences();
     let account: oidc_rp::account::Account<
         _,
         _,

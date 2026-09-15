@@ -60,8 +60,7 @@ async fn main() -> anyhow::Result<()> {
             args.client_id.clone(),
         )?
         .allow_all_access_token_jose_types()
-        .set_other_audience_verifier_fn(|_| true)
-        .allow_all_access_token_jose_types();
+        .allow_other_audiences();
 
         let account: oidc_rp::account::Account<
             _,

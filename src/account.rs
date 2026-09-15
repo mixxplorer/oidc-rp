@@ -373,8 +373,8 @@ pub struct AuthorizePkceState {
 ///         client_id.clone(),
 ///     )?
 ///     .set_access_token_allowed_jose_types(vec![openidconnect::JsonWebTokenType::new("JWT".to_owned()).normalize()?])
-///     // Safe to do as it only allows other, additional audiences in token, our own audience will still be checked
-///     .set_other_audience_verifier_fn(|_| true);
+///     // Safe to do as it only allows other, additional audiences in token, our own audience will still be checked. Also, we trust the IdP.
+///     .allow_other_audiences();
 ///
 /// let account: oidc_rp::account::Account<
 ///        _, // no additional claims in access token
