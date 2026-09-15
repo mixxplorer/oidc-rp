@@ -66,6 +66,7 @@ pub struct Account<
     IC = openidconnect::EmptyAdditionalClaims,
     APM = crate::idp::EmptyAdditionalIdPMetadata,
     AreAccountTokenAvailable = crate::types::AttributeNotSet,
+    IsConfidentialClient = crate::types::AttributeNotSet,
 > where
     APM: openidconnect::AdditionalProviderMetadata
         + PartialEq
@@ -73,6 +74,7 @@ pub struct Account<
         + Sync
         + serde::de::DeserializeOwned,
     AreAccountTokenAvailable: crate::types::AttributeState + serde::de::DeserializeOwned,
+    IsConfidentialClient: crate::types::AttributeState + serde::de::DeserializeOwned,
     AC: openidconnect::AdditionalClaims + Clone + PartialEq + Send + Sync + 'static,
     IC: openidconnect::AdditionalClaims + Clone + PartialEq + Send + Sync + 'static,
 {
@@ -103,10 +105,11 @@ pub struct Account<
     updater: Option<std::sync::Arc<crate::updater::Updater<AccountError>>>,
     verifier: std::sync::Arc<crate::verifier::Verifier<AC, IC, APM>>,
 
-    state: std::marker::PhantomData<AreAccountTokenAvailable>,
+    state_token_avail: std::marker::PhantomData<AreAccountTokenAvailable>,
+    state_confidential_client: std::marker::PhantomData<IsConfidentialClient>,
 }
 
-impl<AC, IC, APM> Account<AC, IC, APM, crate::types::AttributeNotSet>
+impl<AC, IC, APM> Account<AC, IC, APM, crate::types::AttributeNotSet, crate::types::AttributeNotSet>
 where
     AC: openidconnect::AdditionalClaims + Clone + PartialEq + Send + Sync + 'static,
     IC: openidconnect::AdditionalClaims + Clone + PartialEq + Send + Sync + 'static,
@@ -136,10 +139,18 @@ where
                 .into(),
             updater: None,
             verifier: verifier.into(),
-            state: std::marker::PhantomData,
+            state_token_avail: std::marker::PhantomData,
+            state_confidential_client: std::marker::PhantomData,
         }
     }
+}
 
+impl<AC, IC, APM> Account<AC, IC, APM, crate::types::AttributeNotSet, crate::types::AttributeSet>
+where
+    AC: openidconnect::AdditionalClaims + Clone + PartialEq + Send + Sync + 'static,
+    IC: openidconnect::AdditionalClaims + Clone + PartialEq + Send + Sync + 'static,
+    APM: openidconnect::AdditionalProviderMetadata + PartialEq + Send + Sync + 'static,
+{
     /// Creates a new Account object for a specific confidential client.
     ///
     /// See <https://www.rfc-editor.org/rfc/rfc6749#section-2.1> for more details.
@@ -165,15 +176,45 @@ where
                 .into(),
             updater: None,
             verifier: verifier.into(),
-            state: std::marker::PhantomData,
+            state_token_avail: std::marker::PhantomData,
+            state_confidential_client: std::marker::PhantomData,
         }
     }
 }
 
-impl<AC, IC, APM, AreAccountTokenAvailable> Account<AC, IC, APM, AreAccountTokenAvailable>
+impl<AC, IC, APM> Account<AC, IC, APM, crate::types::AttributeNotSet, crate::types::AttributeSet>
+where
+    APM: openidconnect::AdditionalProviderMetadata + PartialEq + Send + Sync + 'static,
+    AC: openidconnect::AdditionalClaims + Clone + PartialEq + Send + Sync + 'static,
+    IC: openidconnect::AdditionalClaims + Clone + PartialEq + Send + Sync + 'static,
+{
+    /// Exchanges the client credentials of a secret client via the Client Credentials Grant.
+    ///
+    /// This is intended for using the service account of an IdP.
+    ///
+    /// See <https://www.rfc-editor.org/info/rfc6749/#section-4.4> for more details about the Client Credentials Grant.
+    pub async fn exchange_client_credentials(
+        self,
+        scopes: Vec<String>,
+    ) -> Result<Account<AC, IC, APM, crate::types::AttributeSet>, AccountError> {
+        let client = self.get_client().await?;
+        let client_creds_token_request = client
+            .exchange_client_credentials()?
+            .add_scopes(scopes.into_iter().map(openidconnect::Scope::new));
+        let token_response = client_creds_token_request
+            .request_async(&*self.idp.reqwest_client)
+            .await?;
+
+        self.process_token_response(token_response, None).await
+    }
+}
+
+impl<AC, IC, APM, AreAccountTokenAvailable, IsConfidentialClient>
+    Account<AC, IC, APM, AreAccountTokenAvailable, IsConfidentialClient>
 where
     APM: openidconnect::AdditionalProviderMetadata + PartialEq + Send + Sync + 'static,
     AreAccountTokenAvailable: crate::types::AttributeState,
+    IsConfidentialClient: crate::types::AttributeState,
     AC: openidconnect::AdditionalClaims + Clone + PartialEq + Send + Sync + 'static,
     IC: openidconnect::AdditionalClaims + Clone + PartialEq + Send + Sync + 'static,
 {
@@ -248,7 +289,8 @@ where
             min_validity_id_token: self.min_validity_id_token,
             updater: self.updater,
             verifier: self.verifier,
-            state: std::marker::PhantomData,
+            state_token_avail: std::marker::PhantomData,
+            state_confidential_client: std::marker::PhantomData,
         })
     }
 
@@ -439,11 +481,13 @@ where
     }
 }
 
-impl<AC, IC, APM> Account<AC, IC, APM, crate::types::AttributeSet>
+impl<AC, IC, APM, IsConfidentialClient>
+    Account<AC, IC, APM, crate::types::AttributeSet, IsConfidentialClient>
 where
     APM: openidconnect::AdditionalProviderMetadata + PartialEq + Send + Sync + 'static,
     AC: openidconnect::AdditionalClaims + Clone + PartialEq + Send + Sync + 'static,
     IC: openidconnect::AdditionalClaims + Clone + PartialEq + Send + Sync + 'static,
+    IsConfidentialClient: crate::types::AttributeState,
 {
     /// Returns a currently valid access token. If it is not valid anymore, it returns an TokenTooOld Error.
     ///
