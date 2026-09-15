@@ -58,7 +58,7 @@ async fn main() -> anyhow::Result<()> {
     .allow_all_access_token_jose_types()
     .set_other_audience_verifier_fn(|_| true);
     let account: oidc_rp::account::Account<_, _, oidc_rp::oidc::EmptyAdditionalProviderMetadata> =
-        oidc_rp::account::Account::new_public(idp, args.client_id.clone(), verifier);
+        oidc_rp::account::Account::from_public_client(idp, args.client_id.clone(), verifier);
 
     let (pkce_url, pkce_state) = account
         .authorize_url_pkce(
@@ -77,7 +77,7 @@ async fn main() -> anyhow::Result<()> {
     let account = account
         .exchange_code_pkce(code_query_param, pkce_state)
         .await?
-        .0;
+        .account;
 
     let first_at = account.get_access_token().await?;
     log::info!("First Access Token: {:?}", first_at);

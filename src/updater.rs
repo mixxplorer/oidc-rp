@@ -1,5 +1,5 @@
 #[derive(Debug)]
-pub(crate) struct Updater<E> {
+pub struct Updater<E> {
     cancellation_token: tokio_util::sync::CancellationToken,
     join_handle: std::sync::Arc<tokio::task::JoinHandle<()>>,
     phantom_e: std::marker::PhantomData<E>,
@@ -51,7 +51,7 @@ where
                     if let Some(next_refresh) = next_refresh_opt {
                         let diff = next_refresh.time() - chrono::offset::Utc::now().time();
                         if diff
-                            > chrono::Duration::new(0, 0).expect("Unable to construct time delta1")
+                            > chrono::Duration::new(0, 0).expect("Unable to construct time delta!")
                         {
                             log::trace!("Update thread sleeping for {:?}", diff);
                             tokio::time::sleep(
@@ -66,7 +66,7 @@ where
                             std::thread::sleep(std::time::Duration::new(1, 0));
                         }
                     } else {
-                        log::info!("Exiting refresh thread as refresh policy does not request any refresh in future.");
+                        log::debug!("Exiting refresh thread as refresh policy does not request any refresh in future.");
                         return Ok(UpdaterRunReturn::End);
                     }
 

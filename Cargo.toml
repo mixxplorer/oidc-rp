@@ -13,6 +13,10 @@ categories = ["authentication"]
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+integration-axum = ["dep:axum", "dep:tower", "dep:futures-util"]
+special-reqwest-client = []
+
 [dependencies]
 axum = { version = "0.8.1", features = ["macros"], optional = true }
 chrono = "0.4"
@@ -42,10 +46,6 @@ simple_logger = { version = "~5.2.0", features = ["colors", "timestamps", "stder
 tokio = { version = "1.37.0", features = ["macros", "rt-multi-thread"] }
 tokio-test = "0.4"
 
-[features]
-integration-axum = ["dep:axum", "dep:tower", "dep:futures-util"]
-special-reqwest-client = []
-
 [badges]
 maintenance = { status = "experimental" }
 
@@ -57,6 +57,11 @@ opt-level = 'z'
 [[example]]
 name = "account"
 path = "examples/account/main.rs"
+crate-type = ["bin"]
+
+[[example]]
+name = "service_account_opaque"
+path = "examples/service_account_opaque/main.rs"
 crate-type = ["bin"]
 
 [[example]]

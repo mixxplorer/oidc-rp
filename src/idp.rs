@@ -96,18 +96,15 @@ impl IdP {
     }
 
     fn get_default_reqwest_client_internal() -> reqwest::ClientBuilder {
-        let builder = reqwest::Client::builder();
-        // do not set redirect policy as this is handled by browser
-        let builder = builder
+        reqwest::Client::builder()
+            // do not set redirect policy as this is handled by browser
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!(
                 env!("CARGO_PKG_NAME"),
                 "/",
                 env!("CARGO_PKG_VERSION"),
             ))
-            .referer(false);
-
-        builder
+            .referer(false)
     }
 
     /// Provides a basic built client for further modifications.
@@ -238,9 +235,10 @@ where
     ///
     /// # Examples
     ///
-    /// /// Automatically refresh JWKs (to use for verifying access tokens)
+    ///
     /// ```
     /// # async fn test() -> anyhow::Result<()> {
+    /// // Automatically refresh JWKs (to use for verifying access tokens)
     /// let idp = oidc_rp::idp::IdP::<oidc_rp::oidc::EmptyAdditionalProviderMetadata>::new(url::Url::parse("http://keycloak.internal/realms/oidc-rp")?).await?
     ///     .set_default_idp_refresh_strategy().await?;
     /// // get up-to-date (regarding the default refresh strategy) JWKs, see [`DefaultIdPDataRefreshStrategy`].
@@ -481,7 +479,7 @@ impl IdPRefreshStrategy for DefaultIdPDataRefreshStrategy {
 #[derive(Debug, Clone)]
 pub struct NoIdPDataRefreshStrategy {}
 impl NoIdPDataRefreshStrategy {
-    const INVALIDATE_AFTER: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+    const INVALIDATE_AFTER: std::time::Duration = std::time::Duration::from_mins(10);
 }
 
 impl IdPRefreshStrategy for NoIdPDataRefreshStrategy {

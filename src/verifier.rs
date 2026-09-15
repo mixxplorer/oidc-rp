@@ -23,6 +23,12 @@ pub enum VerifierError {
     #[error("Token has wrong format")]
     TokenWrongFormat(),
 
+    #[error("Expiry time of access token and token response do not match: {0} != {1}")]
+    AccessTokenTimeMismatch(chrono::DateTime<chrono::Utc>, chrono::DateTime<chrono::Utc>),
+
+    #[error("Expiry time of access token not set")]
+    AccessTokenNoExpiryTime(),
+
     #[error("Expected token hash does not match with calculated token hash!")]
     TokenSignatureMismatchError(),
 }

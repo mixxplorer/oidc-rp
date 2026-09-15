@@ -67,7 +67,7 @@ async fn main() -> anyhow::Result<()> {
             _,
             _,
             oidc_rp::oidc::EmptyAdditionalProviderMetadata,
-        > = oidc_rp::account::Account::new_public(idp, args.client_id.clone(), verifier);
+        > = oidc_rp::account::Account::from_public_client(idp, args.client_id.clone(), verifier);
 
         let account = account
             .exchange_password(args.username, args.password, vec![])

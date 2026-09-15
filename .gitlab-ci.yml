@@ -63,7 +63,7 @@ doc:
   stage: test
   needs: []
   script:
-    - RUSTDOCFLAGS="-D warnings" cargo doc
+    - RUSTDOCFLAGS="-D warnings" cargo doc --all-features
 
 test-debug:
   stage: test
@@ -104,6 +104,7 @@ test-debug:
     - rustup run nightly cargo llvm-cov --html --no-clean run --example jwks
     - rustup run nightly cargo llvm-cov --html --no-clean run --example auth_verify
     - rustup run nightly cargo llvm-cov --html --no-clean run --example account
+    - rustup run nightly cargo llvm-cov --html --no-clean run --example service_account_opaque
     - mkdir -p target/llvm-cov
     - rustup run nightly cargo llvm-cov report --doctests --cobertura --output-path target/llvm-cov/cobertura.xml
     - "xmllint --xpath \"concat('Coverage: ', 100 * string(//coverage/@line-rate), '%')\" target/llvm-cov/cobertura.xml"
