@@ -90,7 +90,7 @@ where
 {
     /// Create a new verifier by using default settings.
     ///
-    /// Beware: These settings might break between point releases. We might remove old and insecure algorithms from the default set.
+    /// Beware: These settings might break between feature releases. We might remove old and insecure (e.g. known broken) algorithms from the default set.
     /// If you need more control, use [`new_with_algs`](`Verifier::new_with_algs`).
     pub fn new(
         idp: crate::idp::IdP<APM, crate::types::AttributeSet>,
