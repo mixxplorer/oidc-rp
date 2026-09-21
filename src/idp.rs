@@ -428,7 +428,7 @@ where
             writable_attributes.discovery = new_attrs;
             writable_attributes.data_usable_until = Some(data_usable_until);
             writable_attributes.last_data_refresh = timestamp_attribute_refresh;
-            log::trace!("Updated IdP Metadata!");
+            tracing::trace!("Updated IdP Metadata!");
         }
         Ok::<(), IdPError>(())
     }
@@ -456,10 +456,10 @@ impl IdPRefreshStrategy for DefaultIdPDataRefreshStrategy {
         let next_min_refresh = chrono::offset::Utc::now() + Self::MIN_REFRESH_DISTANCE;
 
         if next_planned_refresh > next_min_refresh {
-            log::trace!("Providing planned refresh timestamp");
+            tracing::trace!("Providing planned refresh timestamp");
             return Ok(Some(next_planned_refresh));
         }
-        log::trace!("Providing min refresh timestamp (possible after a failed request)");
+        tracing::trace!("Providing min refresh timestamp (possible after a failed request)");
         Ok(Some(next_min_refresh))
     }
 

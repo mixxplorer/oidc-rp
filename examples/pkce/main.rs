@@ -1,6 +1,5 @@
 use std::io::BufRead;
 
-use anyhow::Context;
 use clap::Parser;
 
 /// Example of generating and receiving a PKCE flow
@@ -11,7 +10,7 @@ use clap::Parser;
 #[command(author, version, long_about = "Account example")]
 pub struct CliArguments {
     #[clap(flatten)]
-    log_level: clap_verbosity_flag::Verbosity<clap_verbosity_flag::InfoLevel>,
+    verbosity: clap_verbosity_flag::Verbosity<clap_verbosity_flag::InfoLevel>,
 
     #[arg(
         short,
@@ -34,15 +33,9 @@ pub struct CliArguments {
 async fn main() -> anyhow::Result<()> {
     let args = CliArguments::parse();
 
-    simple_logger::SimpleLogger::new()
-        .with_level(
-            args.log_level
-                .log_level()
-                .context("No log level given")?
-                .to_level_filter(),
-        )
-        .with_utc_timestamps()
-        .init()?;
+    tracing_subscriber::fmt()
+        .with_max_level(args.verbosity)
+        .init();
 
     // fetch access token as we would be a cli tool
 
@@ -80,8 +73,8 @@ async fn main() -> anyhow::Result<()> {
         .account;
 
     let first_at = account.get_access_token().await?;
-    log::info!("First Access Token: {:?}", first_at);
-    log::debug!("ID token claims: {:?}", account.get_id_token_claims().await);
+    tracing::info!("First Access Token: {:?}", first_at);
+    tracing::debug!("ID token claims: {:?}", account.get_id_token_claims().await);
 
     Ok(())
 }

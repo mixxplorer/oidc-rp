@@ -1,4 +1,3 @@
-use anyhow::Context;
 use clap::Parser;
 
 /// Example of a CLI application that autheticates to an IDP using the deprecated implicit flow.
@@ -9,7 +8,7 @@ use clap::Parser;
 #[command(author, version, long_about = "Account example")]
 pub struct CliArguments {
     #[clap(flatten)]
-    log_level: clap_verbosity_flag::Verbosity<clap_verbosity_flag::InfoLevel>,
+    verbosity: clap_verbosity_flag::Verbosity<clap_verbosity_flag::InfoLevel>,
 
     #[arg(
         short,
@@ -42,15 +41,9 @@ pub struct CliArguments {
 async fn main() -> anyhow::Result<()> {
     let args = CliArguments::parse();
 
-    simple_logger::SimpleLogger::new()
-        .with_level(
-            args.log_level
-                .log_level()
-                .context("No log level given")?
-                .to_level_filter(),
-        )
-        .with_utc_timestamps()
-        .init()?;
+    tracing_subscriber::fmt()
+        .with_max_level(args.verbosity)
+        .init();
 
     // fetch access token as we would be a cli tool
 
@@ -74,14 +67,14 @@ async fn main() -> anyhow::Result<()> {
     let account = account.start_auto_refresh();
 
     let first_at = account.get_access_token().await?;
-    log::info!("First Access Token: {:?}", first_at);
-    log::debug!("ID token claims: {:?}", account.get_id_token_claims().await);
+    tracing::info!("First Access Token: {:?}", first_at);
+    tracing::debug!("ID token claims: {:?}", account.get_id_token_claims().await);
 
     std::thread::sleep(std::time::Duration::new(70, 0));
 
     // With our test setup (Keycloak) where access tokens expire every 2 minutes, we expect to see the same token
     if first_at == account.get_access_token().await? {
-        log::info!("Still getting same access token as expected!");
+        tracing::info!("Still getting same access token as expected!");
     } else {
         anyhow::bail!("Access token has unexpectedly changed!");
     }
@@ -93,10 +86,10 @@ async fn main() -> anyhow::Result<()> {
         anyhow::bail!("first and final access tokens are equal, although they should not be!")
     }
 
-    log::info!("New access token has been fetched.");
-    log::debug!("Access token: {:?}", final_at);
+    tracing::info!("New access token has been fetched.");
+    tracing::debug!("Access token: {:?}", final_at);
     // ensure id token claims can still be fetched
-    log::debug!("ID token claims: {:?}", account.get_id_token_claims().await);
+    tracing::debug!("ID token claims: {:?}", account.get_id_token_claims().await);
 
     Ok(())
 }

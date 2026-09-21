@@ -1,11 +1,10 @@
-use anyhow::Context;
 use clap::Parser;
 
 #[derive(clap::Parser, Debug)]
 #[command(author, version, long_about = "Verification example / benchmark")]
 pub struct CliArguments {
     #[clap(flatten)]
-    log_level: clap_verbosity_flag::Verbosity<clap_verbosity_flag::InfoLevel>,
+    verbosity: clap_verbosity_flag::Verbosity<clap_verbosity_flag::InfoLevel>,
 
     #[arg(
         short,
@@ -38,15 +37,9 @@ pub struct CliArguments {
 async fn main() -> anyhow::Result<()> {
     let args = CliArguments::parse();
 
-    simple_logger::SimpleLogger::new()
-        .with_level(
-            args.log_level
-                .log_level()
-                .context("No log level given")?
-                .to_level_filter(),
-        )
-        .with_utc_timestamps()
-        .init()?;
+    tracing_subscriber::fmt()
+        .with_max_level(args.verbosity)
+        .init();
 
     // fetch access token as we would be a cli tool
     let access_token: String = {
@@ -72,13 +65,13 @@ async fn main() -> anyhow::Result<()> {
             .exchange_password(args.username, args.password, vec![])
             .await?;
 
-        log::info!("Account password exchanged for token");
-        log::debug!("Access token: {:?}", account.get_access_token().await?);
+        tracing::info!("Account password exchanged for token");
+        tracing::debug!("Access token: {:?}", account.get_access_token().await?);
 
         account.get_access_token().await?.clone()
     };
 
-    log::debug!("Real AT: {access_token}");
+    tracing::debug!("Real AT: {access_token}");
 
     // now, verify this access token as we would be a relying party
     {
@@ -95,16 +88,16 @@ async fn main() -> anyhow::Result<()> {
         )?
         .allow_all_access_token_jose_types()
         .set_other_audience_verifier_fn(|_| true);
-        log::info!("Starting verifying claims");
+        tracing::info!("Starting verifying claims");
         // 10_000 is arbitrary such that all verifications should terminate on reasonable hardware before the token expires.
         for _ in 0..10_000 {
             verifier.verify_access_token(&access_token).await.unwrap();
         }
-        log::info!("Verified 10k access tokens!");
+        tracing::info!("Verified 10k access tokens!");
         let claims: oidc_rp::verifier::JwtAccessTokenClaims<_> =
             verifier.verify_access_token(&access_token).await.unwrap();
-        log::info!("Extracted claims!");
-        log::debug!("Claims: {claims:#?}");
+        tracing::info!("Extracted claims!");
+        tracing::debug!("Claims: {claims:#?}");
 
         // wait two minutes until access token becomes invalid (default for the Keycloak test setup)
         std::thread::sleep(std::time::Duration::new(120, 0));
@@ -112,8 +105,8 @@ async fn main() -> anyhow::Result<()> {
         match expected_error {
             Ok(_) => anyhow::bail!("Access token validation should have errored!"),
             Err(error) => {
-                log::info!("Access token validation has errored as expected!");
-                log::debug!("Access token validation error: {error:?}");
+                tracing::info!("Access token validation has errored as expected!");
+                tracing::debug!("Access token validation error: {error:?}");
             }
         }
     }

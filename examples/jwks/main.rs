@@ -1,11 +1,10 @@
-use anyhow::Context;
 use clap::Parser;
 
 #[derive(clap::Parser, Debug)]
 #[command(author, version, long_about = "Automatic JWKS reload example")]
 pub struct CliArguments {
     #[clap(flatten)]
-    log_level: clap_verbosity_flag::Verbosity,
+    verbosity: clap_verbosity_flag::Verbosity,
 
     #[arg(
         short,
@@ -20,15 +19,9 @@ pub struct CliArguments {
 async fn main() -> anyhow::Result<()> {
     let args = CliArguments::parse();
 
-    simple_logger::SimpleLogger::new()
-        .with_level(
-            args.log_level
-                .log_level()
-                .context("No log level given")?
-                .to_level_filter(),
-        )
-        .with_utc_timestamps()
-        .init()?;
+    tracing_subscriber::fmt()
+        .with_max_level(args.verbosity)
+        .init();
 
     {
         let idp = oidc_rp::idp::IdP::<oidc_rp::idp::EmptyAdditionalIdPMetadata>::new(
@@ -39,14 +32,14 @@ async fn main() -> anyhow::Result<()> {
         .await?;
 
         let jwks = idp.jwks().await?;
-        log::info!("Received JWKS!");
-        log::debug!("JWKS: {:?}", jwks);
+        tracing::info!("Received JWKS!");
+        tracing::debug!("JWKS: {:?}", jwks);
 
         std::thread::sleep(std::time::Duration::new(65, 0));
 
         let jwks = idp.jwks().await?;
-        log::info!("Received JWKS!");
-        log::debug!("JWKS: {:?}", jwks);
+        tracing::info!("Received JWKS!");
+        tracing::debug!("JWKS: {:?}", jwks);
     }
 
     Ok(())

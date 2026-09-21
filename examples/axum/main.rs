@@ -68,7 +68,7 @@ pub struct CliArguments {
     idp_url: String,
 
     #[clap(flatten)]
-    log_level: clap_verbosity_flag::Verbosity<clap_verbosity_flag::InfoLevel>,
+    verbosity: clap_verbosity_flag::Verbosity<clap_verbosity_flag::InfoLevel>,
 }
 
 async fn serve_api(
@@ -81,14 +81,13 @@ async fn serve_api(
 async fn main() -> anyhow::Result<()> {
     let args = CliArguments::parse();
 
-    simple_logger::SimpleLogger::new()
-        .with_level(args.log_level.log_level().unwrap().to_level_filter())
-        .with_utc_timestamps()
-        .init()?;
+    tracing_subscriber::fmt()
+        .with_max_level(args.verbosity)
+        .init();
 
     // see https://robertying.com/post/sigterm-docker/ for an explanation why this is necessary
     ctrlc::set_handler(move || {
-        log::info!("received Ctrl+C! Exiting!");
+        tracing::info!("received Ctrl+C! Exiting!");
         std::process::exit(0);
     })
     .expect("Error setting Ctrl-C handler");
@@ -100,9 +99,9 @@ async fn main() -> anyhow::Result<()> {
     .set_no_idp_refresh_strategy()
     .await?;
 
-    log::info!("Constructing app state...");
+    tracing::info!("Constructing app state...");
     let state = AppState::new(idp)?;
-    log::info!("Done constructing app state!");
+    tracing::info!("Done constructing app state!");
 
     // create metadata for API docs
     let mut api = aide::openapi::OpenApi {

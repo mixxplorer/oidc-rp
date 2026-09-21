@@ -50,7 +50,7 @@ impl WebAppError {
 // Tell axum how to convert `AppError` into a response.
 impl axum::response::IntoResponse for WebAppError {
     fn into_response(self) -> Response {
-        log::warn!(
+        tracing::warn!(
             "[error_id={}] Error during handling request, causing code {}: private_message={:?} public_message={:?}, error={:?}",
             self.id,
             self.status_code,

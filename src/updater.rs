@@ -11,7 +11,7 @@ impl<E> Drop for Updater<E> {
     fn drop(&mut self) {
         self.cancellation_token.cancel();
         self.join_handle.abort();
-        log::trace!("Requested to end update thread...");
+        tracing::trace!("Requested to end update thread...");
     }
 }
 
@@ -53,7 +53,7 @@ where
                         if diff
                             > chrono::Duration::new(0, 0).expect("Unable to construct time delta!")
                         {
-                            log::trace!("Update thread sleeping for {:?}", diff);
+                            tracing::trace!("Update thread sleeping for {:?}", diff);
                             tokio::time::sleep(
                                 diff.to_std().expect(
                                     "Unable to fit chrono::Duration into std::time::duration",
@@ -61,18 +61,18 @@ where
                             ).await;
                         } else {
                             // duration is negative, just continue
-                            log::warn!("Received negative duration from get_next_update_time. Maybe you selected a bad refresh strategy? You might want select a refresh strategy, which is returning timestamps with at least a few seconds in the future to prevent DoSing");
+                            tracing::warn!("Received negative duration from get_next_update_time. Maybe you selected a bad refresh strategy? You might want select a refresh strategy, which is returning timestamps with at least a few seconds in the future to prevent DoSing");
                             // make sure we are not running in endless loop
                             std::thread::sleep(std::time::Duration::new(1, 0));
                         }
                     } else {
-                        log::debug!("Exiting refresh thread as refresh policy does not request any refresh in future.");
+                        tracing::debug!("Exiting refresh thread as refresh policy does not request any refresh in future.");
                         return Ok(UpdaterRunReturn::End);
                     }
 
                     // check if we are requested to exit
                     if cancellation_token_task.is_cancelled() {
-                        log::trace!("Ending update task as cancellation token is requesting it...");
+                        tracing::trace!("Ending update task as cancellation token is requesting it...");
                         return Ok(UpdaterRunReturn::End);
                     }
 
@@ -91,7 +91,7 @@ where
                         // This causes a `Custom { kind: Interrupted, error: JoinError::Cancelled(Id(17)) }`, which does not implement
                         // `source` so we cannot check for it...
                         if !cancellation_token_task.is_cancelled() {
-                            log::error!("Updating data failed with {:#?}", error);
+                            tracing::error!("Updating data failed with {:#?}", error);
                         }
                     }
                 }

@@ -91,7 +91,7 @@ pub mod access_token_type {
                 let current_time = chrono::Utc::now();
                 let token_expiry_calculated = current_time + token_response_expires_in;
                 let diff = token_expiry_calculated - access_token_expiry;
-                log::trace!(
+                tracing::trace!(
                     "Time difference between access token and token response is: {:?}",
                     diff
                 );
@@ -1138,7 +1138,7 @@ where
 
         // if we have no refresh token, just exit and exit updater
         if account_tokens.refresh_token.is_none() {
-            log::trace!("No refresh token present, exiting updater...");
+            tracing::trace!("No refresh token present, exiting updater...");
             return Ok(None);
         }
 
@@ -1165,7 +1165,7 @@ where
             .request_async(&*self.idp.reqwest_client)
             .await?;
 
-        log::trace!("Updated account tokens!");
+        tracing::trace!("Updated account tokens!");
 
         *account_tokens = Account::<
             AC,
@@ -1230,7 +1230,7 @@ where
                     .await?
             }
         };
-        log::trace!("Updated account tokens!");
+        tracing::trace!("Updated account tokens!");
 
         *account_tokens = Account::<
             AC,
