@@ -62,7 +62,8 @@ async fn main() -> anyhow::Result<()> {
         oidc_rp::account::Account::from_public_client(idp, args.client_id.clone(), verifier);
 
     let account = account
-        .exchange_password(args.username, args.password, vec!["openid".to_string()])
+        .set_scopes(vec!["openid".to_string()])
+        .exchange_password(args.username, args.password)
         .await?;
     let account = account.start_auto_refresh();
 

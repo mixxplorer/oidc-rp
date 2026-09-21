@@ -62,7 +62,7 @@ async fn main() -> anyhow::Result<()> {
         > = oidc_rp::account::Account::from_public_client(idp, args.client_id.clone(), verifier);
 
         let account = account
-            .exchange_password(args.username, args.password, vec![])
+            .exchange_password(args.username, args.password)
             .await?;
 
         tracing::info!("Account password exchanged for token");

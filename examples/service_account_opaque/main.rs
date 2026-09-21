@@ -66,7 +66,8 @@ async fn main() -> anyhow::Result<()> {
     );
 
     let account = account
-        .exchange_client_credentials(vec!["openid".to_owned()])
+        .set_scopes(vec!["openid".to_string()])
+        .exchange_client_credentials()
         .await?
         .start_auto_refresh();
 

@@ -54,11 +54,7 @@ async fn main() -> anyhow::Result<()> {
         oidc_rp::account::Account::from_public_client(idp, args.client_id.clone(), verifier);
 
     let (pkce_url, pkce_state) = account
-        .authorize_url_pkce(
-            vec![],
-            url::Url::parse("http://nonexistant.internal")?,
-            None,
-        )
+        .authorize_url_pkce(url::Url::parse("http://nonexistant.internal")?, None)
         .await?;
 
     println!("Please go to {pkce_url} in your browser, then copy over the 'code' parameter.");

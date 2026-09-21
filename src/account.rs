@@ -157,6 +157,7 @@ pub mod account_user_type {
             account_tokens: std::sync::Arc<tokio::sync::RwLock<super::AccountTokens<IC>>>,
             client_id: openidconnect::ClientId,
             client_secret: Option<openidconnect::ClientSecret>,
+            scopes: Option<Vec<openidconnect::Scope>>,
             min_validity_access_token_target: std::sync::Arc<chrono::TimeDelta>,
             verifier: std::sync::Arc<crate::verifier::Verifier<AC, IC, APM>>,
         ) -> crate::updater::Updater<super::AccountError>
@@ -179,6 +180,7 @@ pub mod account_user_type {
             account_tokens: std::sync::Arc<tokio::sync::RwLock<super::AccountTokens<IC>>>,
             client_id: openidconnect::ClientId,
             client_secret: Option<openidconnect::ClientSecret>,
+            scopes: Option<Vec<openidconnect::Scope>>,
             min_validity_access_token_target: std::sync::Arc<chrono::TimeDelta>,
             verifier: std::sync::Arc<crate::verifier::Verifier<AC, IC, APM>>,
         ) -> crate::updater::Updater<super::AccountError>
@@ -193,6 +195,7 @@ pub mod account_user_type {
                 account_tokens,
                 client_id,
                 client_secret,
+                scopes,
                 min_validity_access_token_target,
                 verifier,
                 access_token_type: std::marker::PhantomData::<ATT>,
@@ -218,6 +221,7 @@ pub mod account_user_type {
             account_tokens: std::sync::Arc<tokio::sync::RwLock<super::AccountTokens<IC>>>,
             client_id: openidconnect::ClientId,
             client_secret: Option<openidconnect::ClientSecret>,
+            scopes: Option<Vec<openidconnect::Scope>>,
             min_validity_access_token_target: std::sync::Arc<chrono::TimeDelta>,
             verifier: std::sync::Arc<crate::verifier::Verifier<AC, IC, APM>>,
         ) -> crate::updater::Updater<super::AccountError>
@@ -234,6 +238,7 @@ pub mod account_user_type {
                     account_tokens,
                     client_id,
                     client_secret,
+                    scopes,
                     min_validity_access_token_target,
                     verifier,
                     access_token_type: std::marker::PhantomData::<ATT>,
@@ -434,6 +439,7 @@ pub struct Account<
     client_id: openidconnect::ClientId,
     client_secret: Option<openidconnect::ClientSecret>,
     account_tokens: Option<std::sync::Arc<tokio::sync::RwLock<AccountTokens<IC>>>>,
+    scopes: Option<Vec<openidconnect::Scope>>,
 
     /// Minimum time an access token should still be valid for
     /// when returned from get_access_token and get_access_token_blocking
@@ -485,6 +491,7 @@ where
             client_id: openidconnect::ClientId::new(client_id),
             client_secret: None,
             account_tokens: None,
+            scopes: None,
             min_validity_access_token: chrono::Duration::new(5, 0)
                 .expect("Unable to construct default min validity")
                 .into(),
@@ -527,6 +534,7 @@ where
             client_id: openidconnect::ClientId::new(client_id),
             client_secret: Some(openidconnect::ClientSecret::new(client_secret)),
             account_tokens: None,
+            scopes: None,
             min_validity_access_token: chrono::Duration::new(5, 0)
                 .expect("Unable to construct default min validity")
                 .into(),
@@ -569,7 +577,6 @@ where
     /// See <https://datatracker.ietf.org/doc/html/rfc6749#section-4.4> for more details about the Client Credentials Grant.
     pub async fn exchange_client_credentials(
         self,
-        scopes: Vec<String>,
     ) -> Result<
         Account<
             AC,
@@ -583,9 +590,10 @@ where
         AccountError,
     > {
         let client = self.get_client().await?;
-        let client_creds_token_request = client
-            .exchange_client_credentials()?
-            .add_scopes(scopes.into_iter().map(openidconnect::Scope::new));
+        let mut client_creds_token_request = client.exchange_client_credentials()?;
+        if let Some(scopes) = self.scopes.clone() {
+            client_creds_token_request = client_creds_token_request.add_scopes(scopes);
+        }
         let token_response = client_creds_token_request
             .request_async(&*self.idp.reqwest_client)
             .await?;
@@ -674,6 +682,7 @@ where
             client_id: self.client_id,
             client_secret: self.client_secret,
             account_tokens: Some(locked_account_tokens),
+            scopes: self.scopes.clone(),
             min_validity_access_token: self.min_validity_access_token,
             min_validity_access_token_target: self.min_validity_access_token_target,
             min_validity_id_token: self.min_validity_id_token,
@@ -753,6 +762,12 @@ where
     ATT: access_token_type::AccessTokenType + 'static,
     AUT: account_user_type::AccountUserType,
 {
+    /// Set scopes for token exchanges and refreshes
+    pub fn set_scopes(mut self, scopes: Vec<String>) -> Self {
+        self.scopes = Some(scopes.into_iter().map(openidconnect::Scope::new).collect());
+        self
+    }
+
     /// Exchange username/password combination for a set of account tokens.
     ///
     /// This uses the direct grant flow, which is deprecated in the OpenID standard.
@@ -767,7 +782,6 @@ where
         self,
         username: String,
         password: String,
-        scopes: Vec<String>,
     ) -> Result<
         Account<AC, IC, APM, ATT, AUT, IsConfidentialClient, crate::types::AttributeSet>,
         AccountError,
@@ -776,9 +790,11 @@ where
 
         let resource_owner_username = openidconnect::ResourceOwnerUsername::new(username);
         let resource_owner_password = openidconnect::ResourceOwnerPassword::new(password);
-        let tok = client
-            .exchange_password(&resource_owner_username, &resource_owner_password)?
-            .add_scopes(scopes.into_iter().map(openidconnect::Scope::new));
+        let mut tok =
+            client.exchange_password(&resource_owner_username, &resource_owner_password)?;
+        if let Some(scopes) = self.scopes.clone() {
+            tok = tok.add_scopes(scopes);
+        }
         let token_response = tok.request_async(&*self.idp.reqwest_client).await?;
 
         self.process_token_response(token_response, None).await
@@ -854,7 +870,6 @@ where
     /// See [`exchange_code_pkce`](Account::exchange_code_pkce) for general usage instructions.
     pub async fn authorize_url_pkce(
         &self,
-        scopes: Vec<String>,
         callback_url: url::Url,
         redirect_url: Option<url::Url>,
     ) -> Result<(url::Url, AuthorizePkceState), AccountError> {
@@ -865,15 +880,19 @@ where
             .await?
             .set_redirect_uri(openidconnect::RedirectUrl::from_url(callback_url.clone()));
 
-        let (auth_url, csrf_token, nonce) = client
+        let mut tok = client
             .authorize_url(
                 openidconnect::core::CoreAuthenticationFlow::AuthorizationCode,
                 openidconnect::CsrfToken::new_random,
                 openidconnect::Nonce::new_random,
             )
-            .set_pkce_challenge(pkce_challenge)
-            .add_scopes(scopes.into_iter().map(openidconnect::Scope::new))
-            .url();
+            .set_pkce_challenge(pkce_challenge);
+
+        if let Some(scopes) = self.scopes.clone() {
+            tok = tok.add_scopes(scopes);
+        }
+
+        let (auth_url, csrf_token, nonce) = tok.url();
 
         Ok((
             auth_url,
@@ -1069,6 +1088,7 @@ where
                 self.account_tokens.clone().unwrap(),
                 self.client_id.clone(),
                 self.client_secret.clone(),
+                self.scopes.clone(),
                 self.min_validity_access_token_target.clone(),
                 self.verifier.clone(),
             ),
@@ -1091,6 +1111,7 @@ where
     account_tokens: std::sync::Arc<tokio::sync::RwLock<AccountTokens<IC>>>,
     client_id: openidconnect::ClientId,
     client_secret: Option<openidconnect::ClientSecret>,
+    scopes: Option<Vec<openidconnect::Scope>>,
     min_validity_access_token_target: std::sync::Arc<chrono::TimeDelta>,
     verifier: std::sync::Arc<crate::verifier::Verifier<AC, IC, APM>>,
 
@@ -1160,7 +1181,10 @@ where
                 .clone()
                 .ok_or(AccountError::NoRefreshtoken())?,
         );
-        let new_token_request = client.exchange_refresh_token(&current_refresh_token)?;
+        let mut new_token_request = client.exchange_refresh_token(&current_refresh_token)?;
+        if let Some(scopes) = self.scopes.clone() {
+            new_token_request = new_token_request.add_scopes(scopes);
+        }
         let token_response = new_token_request
             .request_async(&*self.idp.reqwest_client)
             .await?;
@@ -1217,14 +1241,21 @@ where
         let new_token_response = match account_tokens.refresh_token.clone() {
             Some(refresh_token) => {
                 let current_refresh_token = openidconnect::RefreshToken::new(refresh_token);
-                let new_token_request = client.exchange_refresh_token(&current_refresh_token)?;
+                let mut new_token_request =
+                    client.exchange_refresh_token(&current_refresh_token)?;
+                if let Some(scopes) = self.scopes.clone() {
+                    new_token_request = new_token_request.add_scopes(scopes);
+                }
                 new_token_request
                     .request_async(&*self.idp.reqwest_client)
                     .await?
             }
             None => {
                 // Fallback to re-exchanging the client credentials
-                let new_token_request = client.exchange_client_credentials()?;
+                let mut new_token_request = client.exchange_client_credentials()?;
+                if let Some(scopes) = self.scopes.clone() {
+                    new_token_request = new_token_request.add_scopes(scopes);
+                }
                 new_token_request
                     .request_async(&*self.idp.reqwest_client)
                     .await?
