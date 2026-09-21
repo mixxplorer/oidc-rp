@@ -37,6 +37,12 @@ pub struct CliArguments {
     client_id: String,
 }
 
+#[derive(Clone, Debug, Default, serde::Deserialize, PartialEq, Eq, serde::Serialize)]
+pub struct AdditionalTestClaims {
+    pub test: String,
+}
+impl oidc_rp::oidc::AdditionalClaims for AdditionalTestClaims {}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args = CliArguments::parse();
@@ -52,17 +58,18 @@ async fn main() -> anyhow::Result<()> {
         .set_default_idp_refresh_strategy()
         .await?;
 
-    let verifier = oidc_rp::verifier::Verifier::<oidc_rp::oidc::EmptyAdditionalClaims>::new(
-        idp.clone(),
-        args.client_id.clone(),
-    )?
-    .allow_all_access_token_jose_types()
-    .set_other_audience_verifier_fn(|_| true);
-    let account: oidc_rp::account::Account<_, _, oidc_rp::oidc::EmptyAdditionalProviderMetadata> =
-        oidc_rp::account::Account::from_public_client(idp, args.client_id.clone(), verifier);
+    let verifier = oidc_rp::verifier::Verifier::new(idp.clone(), args.client_id.clone())?
+        .allow_all_access_token_jose_types()
+        .set_other_audience_verifier_fn(|_| true);
+
+    let account: oidc_rp::account::Account<
+        AdditionalTestClaims,
+        AdditionalTestClaims,
+        oidc_rp::oidc::EmptyAdditionalProviderMetadata,
+    > = oidc_rp::account::Account::from_public_client(idp, args.client_id.clone(), verifier);
 
     let account = account
-        .set_scopes(vec!["openid".to_string()])
+        .set_scopes(vec!["openid".to_string(), "test".to_string()])
         .exchange_password(args.username, args.password)
         .await?;
     let account = account.start_auto_refresh();
@@ -70,6 +77,9 @@ async fn main() -> anyhow::Result<()> {
     let first_at = account.get_access_token().await?;
     tracing::info!("First Access Token: {:?}", first_at);
     tracing::debug!("ID token claims: {:?}", account.get_id_token_claims().await);
+    if account.get_id_token_claims().await?.unwrap().additional_claims().test != "beautifulWorld" {
+        anyhow::bail!("Additional claim test not beautifulWorld!");
+    }
 
     std::thread::sleep(std::time::Duration::new(70, 0));
 
@@ -91,6 +101,9 @@ async fn main() -> anyhow::Result<()> {
     tracing::debug!("Access token: {:?}", final_at);
     // ensure id token claims can still be fetched
     tracing::debug!("ID token claims: {:?}", account.get_id_token_claims().await);
+    if account.get_id_token_claims().await?.unwrap().additional_claims().test != "beautifulWorld" {
+        anyhow::bail!("Additional claim test not beautifulWorld!");
+    }
 
     Ok(())
 }
