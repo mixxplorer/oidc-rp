@@ -1,16 +1,15 @@
+use std::marker::PhantomData;
+
 use axum::{
-    Router,
-    extract::{Request, State},
-    middleware::{self, Next},
-    response::Response,
-    routing::get,
+    extract::Request,
+    response::{IntoResponse, Response},
 };
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use tower::{Layer, Service};
 
-// Type alias for a pinned, boxed future with Send + static lifetime.
+/// Type alias for a pinned, boxed future with Send + static lifetime.
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 pub trait IdPProvider<AC, IC, APM>
@@ -66,29 +65,15 @@ where
         OIDCAuthenticationService {
             inner,
             state: self.state.clone(),
-            ac: std::marker::PhantomData,
-            ic: std::marker::PhantomData,
-            apm: std::marker::PhantomData,
+            ac: PhantomData,
+            ic: PhantomData,
+            apm: PhantomData,
         }
     }
 }
 
-pub struct ResponseFuture<F> {
-    inner: std::pin::Pin<Box<F>>,
-}
-
-impl<F, B, E> Future for ResponseFuture<F>
-where
-    F: Future<Output = Result<Response<B>, E>>,
-    B: Default,
-{
-    type Output = Result<Response<B>, E>;
-
-    fn poll(mut self: std::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        self.inner.as_mut().poll(cx)
-    }
-}
-
+/// Tower middleware that wraps an inner service, verifying OIDC access tokens
+/// from the `Authorization` header before delegating to the inner service.
 #[derive(Clone)]
 pub struct OIDCAuthenticationService<S, IdPP, AC, IC, APM>
 where
@@ -96,23 +81,26 @@ where
 {
     inner: S,
     state: IdPP,
-    ac: std::marker::PhantomData<AC>,
-    ic: std::marker::PhantomData<IC>,
-    apm: std::marker::PhantomData<APM>,
+    ac: PhantomData<AC>,
+    ic: PhantomData<IC>,
+    apm: PhantomData<APM>,
 }
 
-impl<S, B, IdPP, AC, IC, APM> Service<Request<B>>
+impl<S, Resp, IdPP, AC, IC, APM> Service<Request<axum::body::Body>>
     for OIDCAuthenticationService<S, IdPP, AC, IC, APM>
 where
-    S: Service<Request<B>>,
-    <S as Service<Request<B>>>::Future: Send + 'static,
+    S: Service<Request<axum::body::Body>, Response = Resp> + Send + 'static,
+    <S as Service<Request<axum::body::Body>>>::Future: Send + 'static,
+    Resp: IntoResponse + Send,
     APM: openidconnect::AdditionalProviderMetadata + PartialEq + Send + Sync + 'static,
     AC: openidconnect::AdditionalClaims + Send + Sync,
     IC: openidconnect::AdditionalClaims + Send + Sync,
     IdPP: IdPProvider<AC, IC, APM> + Clone + Send + Sync + 'static,
-    B: Send + 'static,
 {
-    type Response = S::Response;
+    /// Always return `Response<Body>` so both the auth-success and auth-failure
+    /// paths have a unified type. The inner service's response is converted via
+    /// `.into_response()` to match when verification succeeds.
+    type Response = Response<axum::body::Body>;
     type Error = S::Error;
     type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
 
@@ -120,13 +108,19 @@ where
         self.inner.poll_ready(cx)
     }
 
-    fn call(&mut self, req: Request<B>) -> Self::Future {
+    /// Verify the OIDC access token from the `Authorization` header.
+    ///
+    /// Fixed behaviour:
+    /// - **Missing header** → short-circuits with `401 Unauthorized`.
+    /// - **Invalid token** → short-circuits with `401 Unauthorized` (the original code silently fell through to the inner service).
+    /// - **Valid token** → passes control to the inner service, converting its response to `Response<Body>`.
+    fn call(&mut self, req: Request<axum::body::Body>) -> Self::Future {
         let state = self.state.clone();
         let auth_header_opt = req
             .headers()
-            .get("Authorization")
+            .get(reqwest::header::AUTHORIZATION)
             .and_then(|h| h.to_str().ok())
-            .map(|s| s.to_owned());
+            .map(String::from);
 
         // Obtain the inner future outside the async block so we don't borrow `self` for `'static`.
         let inner_fut = self.inner.call(req);
@@ -134,14 +128,31 @@ where
         Box::pin(async move {
             if let Some(auth_header_str) = auth_header_opt {
                 let verifier = state.get_oidc_rp_verifier();
-                if let Err(e) = verifier
+                match verifier
                     .verify_access_token_strip_bearer(&auth_header_str)
                     .await
                 {
-                    eprintln!("OIDC access token verification failed: {}", e);
+                    Ok(_token) => {
+                        tracing::debug!("OIDC access token verified successfully");
+                        // Verification succeeded: pass through to the inner service.
+                        let resp = inner_fut.await?;
+                        Ok(resp.into_response())
+                    }
+                    Err(e) => {
+                        eprintln!("OIDC access token verification failed: {}", e);
+                        Ok(Response::builder()
+                            .status(axum::http::StatusCode::UNAUTHORIZED)
+                            .body(axum::body::Body::from("Unauthorized"))
+                            .unwrap())
+                    }
                 }
+            } else {
+                eprintln!("No access token found!");
+                Ok(Response::builder()
+                    .status(axum::http::StatusCode::UNAUTHORIZED)
+                    .body(axum::body::Body::from("Missing authentication token"))
+                    .unwrap())
             }
-            inner_fut.await
         })
     }
 }

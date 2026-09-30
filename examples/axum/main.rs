@@ -123,7 +123,7 @@ async fn main() -> anyhow::Result<()> {
     let authenticated_router = aide::axum::ApiRouter::new()
         .api_route(
             "/test",
-            aide::axum::routing::post_with(handlers::authenticated, handlers::authenticated_desc),
+            aide::axum::routing::get_with(handlers::authenticated, handlers::authenticated_desc),
         )
         .route_layer(oidc_rp::integration::axum::OIDCAuthenticationLayer::new(
             state.clone(),
@@ -131,14 +131,11 @@ async fn main() -> anyhow::Result<()> {
 
     // build our application utilizing the ApiRouter from aide, allowing to automatically add doc
     let app = aide::axum::ApiRouter::new()
+        .nest("/test", authenticated_router)
         // Add routes of official API
         .api_route(
             "/v1/health",
             aide::axum::routing::get_with(handlers::health, handlers::health_desc),
-        )
-        .api_route(
-            "/v1/authenticated/test",
-            aide::axum::routing::post_with(handlers::authenticated, handlers::authenticated_desc),
         )
         // Add non-documented routes (e.g. displaying the docs)
         .route("/docs/api.json", aide::axum::routing::get(serve_api))
