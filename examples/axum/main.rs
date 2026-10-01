@@ -131,7 +131,7 @@ async fn main() -> anyhow::Result<()> {
 
     // build our application utilizing the ApiRouter from aide, allowing to automatically add doc
     let app = aide::axum::ApiRouter::new()
-        .nest("/test", authenticated_router)
+        .nest("/authenticated", authenticated_router)
         // Add routes of official API
         .api_route(
             "/v1/health",
@@ -142,7 +142,7 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/docs",
             aide::redoc::Redoc::new("/docs/api.json")
-                .with_title("LCC API")
+                .with_title("OIDC-RP Axum example API")
                 .axum_route(),
         )
         .route(

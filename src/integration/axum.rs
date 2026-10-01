@@ -133,13 +133,13 @@ where
                     .await
                 {
                     Ok(_token) => {
-                        tracing::debug!("OIDC access token verified successfully");
+                        tracing::trace!("OIDC access token verified successfully");
                         // Verification succeeded: pass through to the inner service.
                         let resp = inner_fut.await?;
                         Ok(resp.into_response())
                     }
                     Err(e) => {
-                        eprintln!("OIDC access token verification failed: {}", e);
+                        tracing::warn!("OIDC access token verification failed: {}", e);
                         Ok(Response::builder()
                             .status(axum::http::StatusCode::UNAUTHORIZED)
                             .body(axum::body::Body::from("Unauthorized"))
@@ -147,7 +147,7 @@ where
                     }
                 }
             } else {
-                eprintln!("No access token found!");
+                tracing::debug!("No access token found!");
                 Ok(Response::builder()
                     .status(axum::http::StatusCode::UNAUTHORIZED)
                     .body(axum::body::Body::from("Missing authentication token"))
