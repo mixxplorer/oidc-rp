@@ -8,7 +8,7 @@ Supported components are:
   * OIDC Discovery ([RFC 8414](https://datatracker.ietf.org/doc/html/rfc8414))
   * Access token / ID token verification (locally, without IdP interaction via [JWKS](https://datatracker.ietf.org/doc/html/rfc7517)) ([RFC 9068](https://datatracker.ietf.org/doc/html/rfc9068), with quirks to support [Keycloak](https://github.com/keycloak/keycloak/discussions/8646))
   * Token parsing
-  * Automatic, periodic JWKS refresh for reliable, fast token verification
+  * Automatic, periodic JWKS refresh for reliable, fast local token verification
 * Client (e.g. your Single-Page-App, CLI tool etc.):
   * Automatic refresh of access tokens
   * Retrieval of access tokens (with specific lifetime)
@@ -21,7 +21,17 @@ Supported components are:
 
 We are aware that this is just another OAuth/OIDC lib in the rust ecosystem. The issue is that most libraries do support only parts of the feature set we need, so in our project, we had to use multiple libraries together. During review of other libraries, we did not found a single one, which supports all the features we need. As we alone have multiple project re-implementing it, we decided to just roll the dice and build this library. We are open-sourcing it in the hope it will be useful for someone else having similar requirements.
 
-We do not aim to re-write the verification part of the tokens, but more to use other libraries (which we think have good enough code quality) to provide a unified, simple interfaces or a relying party in Rust.
+We do not aim to re-write the verification part of the tokens, but more to use other libraries (which we think have good enough code quality) to provide a unified, simple interfaces for a relying party in Rust.
+
+## Usage
+
+Take a look at the [`examples`](./examples) directory, which contains a set of real world use-cases:
+
+* [Account](./examples/account): Demonstrates creating an account to be used to fetch tokens for usage with other APIs.
+* [Authentication & Verify](./examples/auth_verify): Showcases how this library can be used on client and server side as a consumer and relying party.
+* [JWKS](./examples/jwks): Example on automatically refreshing JWKs for relying parties.
+* [PKCE](./examples/pkce): Showcasing the PKCE flow as a relying party.
+* [Opaque service account tokens](./examples/service_account_opaque/): Service account
 
 ## License
 
