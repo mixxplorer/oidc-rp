@@ -17,36 +17,6 @@ struct WebAppPublicError {
     message: Option<String>,
 }
 
-impl WebAppError {
-    pub fn new(status_code: StatusCode) -> Self {
-        Self {
-            id: crate::util::get_error_id(),
-            status_code,
-            public_message: None,
-            private_message: None,
-            error: None,
-        }
-    }
-
-    /// Sets a message, which is shown to the API user
-    pub fn public_message(mut self, public_message: &str) -> Self {
-        self.public_message = Some(public_message.to_string());
-        self
-    }
-
-    /// Sets a message, which is only logged on server-side
-    pub fn private_message(mut self, private_message: &str) -> Self {
-        self.private_message = Some(private_message.to_string());
-        self
-    }
-
-    /// Sets the causing error.
-    pub fn error(mut self, error: anyhow::Error) -> Self {
-        self.error = Some(error);
-        self
-    }
-}
-
 // Tell axum how to convert `AppError` into a response.
 impl axum::response::IntoResponse for WebAppError {
     fn into_response(self) -> Response {
