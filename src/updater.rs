@@ -49,7 +49,7 @@ where
                 let update_result: Result<UpdaterRunReturn, Box<dyn std::error::Error + 'static>> = (async {
                     let next_refresh_opt = updater.get_next_update_time().await?;
                     if let Some(next_refresh) = next_refresh_opt {
-                        let diff = next_refresh.time() - chrono::offset::Utc::now().time();
+                        let diff = next_refresh - chrono::offset::Utc::now();
                         if diff
                             > chrono::Duration::new(0, 0).expect("Unable to construct time delta!")
                         {
