@@ -23,9 +23,6 @@ impl AppState {
     }
 }
 
-unsafe impl Send for AppState {}
-unsafe impl Sync for AppState {}
-
 impl
     oidc_rp::integration::axum::IdPProvider<
         openidconnect::EmptyAdditionalClaims,
