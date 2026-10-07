@@ -96,7 +96,6 @@ test-debug:
           # pass control to the default image entrypoint
           exec /opt/keycloak/bin/kc.sh start-dev --import-realm --verbose
   script:
-    - rustup toolchain install nightly
     # Request the Keycloak for a token, there is a race condition as the token keypairs will be only created after the first token request.
     # However, the client (correctly) requests the JWKS beforehand.
     - rustup run nightly cargo llvm-cov --html run --example auth_verify || true
