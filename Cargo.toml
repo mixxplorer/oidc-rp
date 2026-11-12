@@ -15,12 +15,15 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 integration-axum = ["dep:axum", "dep:tower", "dep:futures-util"]
+integration-keycloak = ["dep:keycloak"]
 special-reqwest-client = []
 
 [dependencies]
 axum = { version = "0.8.1", features = ["macros"], optional = true }
 chrono = "0.4"
 futures-util = { version = "0.3.34", optional = true }
+# Disable default features as that would use reqwest13 and we stick to reqwest12 for now.
+keycloak = { version = "26.8.100", default-features = false, features = ["tags-all", "resource-builder", "reqwest12"], optional = true }
 openidconnect = { git = "https://github.com/mixxplorer/openidconnect-rs.git", branch = "feature/jwt-access-tokens", default-features = false, features = ["timing-resistant-secret-traits", "reqwest-blocking", "jwt-access-token"] }
 reqwest = { version = "0.12", features = ["http2", "rustls-tls-native-roots", "brotli", "json"] }
 serde = { version = "1", features = ["std", "derive"] }
@@ -73,6 +76,12 @@ crate-type = ["bin"]
 name = "jwks"
 path = "examples/jwks/main.rs"
 crate-type = ["bin"]
+
+[[example]]
+name = "keycloak"
+path = "examples/keycloak/main.rs"
+crate-type = ["bin"]
+required-features = ["integration-keycloak", "special-reqwest-client"]
 
 [[example]]
 name = "pkce"
