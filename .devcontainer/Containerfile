@@ -24,6 +24,8 @@ ENV CARGO_HOME=/cargo_home
 
 # This must be the last step as the REMOTE_UID is not set here, apparently it is not possible
 # to setup users properly during container build.
-USER $REMOTE_USER
+# Be root, as ID mapping does not work on BrownieOS.
+# USER $REMOTE_USER
+USER root
 
 ENTRYPOINT [ "/usr/local/bin/entrypoint.sh" ]
