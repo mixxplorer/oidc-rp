@@ -1,4 +1,4 @@
-FROM rust:1
+FROM dr.rechenknecht.net/bauhelfer/container/main/rust:ubuntu-resolute
 
 ARG REMOTE_USER=developer
 ARG REMOTE_UID=992
