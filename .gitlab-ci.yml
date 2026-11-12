@@ -101,6 +101,7 @@ test-debug:
     - rustup run nightly cargo llvm-cov --html run --example auth_verify || true
     - rustup run nightly cargo llvm-cov --html --all-features --doctests
     - rustup run nightly cargo llvm-cov --html --no-clean run --example jwks
+    - rustup run nightly cargo llvm-cov --html --no-clean run --example keycloak
     - rustup run nightly cargo llvm-cov --html --no-clean run --example auth_verify
     - rustup run nightly cargo llvm-cov --html --no-clean run --example account
     - rustup run nightly cargo llvm-cov --html --no-clean run --example service_account_opaque
