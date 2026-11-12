@@ -2,7 +2,7 @@
 {
     "name": "OIDC-RP",
     "dockerComposeFile": "docker-compose.yml",
-	"service": "oidc-rp-dev",
+    "service": "oidc-rp-dev",
     "workspaceFolder": "/workspace",
     // "build": {
     //     // Path is relative to the devcontainer.json file.
@@ -18,7 +18,8 @@
             // Add the IDs of extensions you want installed when the container is created.
             "extensions": [
                 "rust-lang.rust-analyzer",
-                "vadimcn.vscode-lldb"
+                "vadimcn.vscode-lldb",
+                "streetsidesoftware.code-spell-checker"
             ]
         }
     }
