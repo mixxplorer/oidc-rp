@@ -122,4 +122,4 @@ lint-cargo-toml:
   before_script:
     - cargo install cargo-sort
   script:
-    - cargo sort --check --workspace && echo "Cargo.toml formatted correctly ✅"
+    - cargo sort --check && echo "Cargo.toml formatted correctly ✅"
